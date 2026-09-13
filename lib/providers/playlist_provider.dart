@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/playlist_model.dart';
 import '../models/audio_model.dart';
 import '../services/api_service.dart';
@@ -130,7 +130,7 @@ class PlaylistProvider extends ChangeNotifier {
     required String token,
     required String name,
     required String visibility,
-    File? imageFile,
+    PlatformFile? imageFile,
   }) async {
     _isCreating = true;
     _errorMessage = null;

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'package:http/http.dart' as http;
+import 'package:file_picker/file_picker.dart';
 import '../models/user_model.dart';
 import '../models/audio_model.dart';
 import '../models/playlist_model.dart';
@@ -18,6 +19,25 @@ class ApiService {
       headers['Authorization'] = 'Bearer $token';
     }
     return headers;
+  }
+
+  static Future<http.MultipartFile> _buildMultipartFile(
+      String fieldName, PlatformFile platformFile) async {
+    if (platformFile.bytes != null && platformFile.bytes!.isNotEmpty) {
+      return http.MultipartFile.fromBytes(
+        fieldName,
+        platformFile.bytes!,
+        filename: platformFile.name,
+      );
+    } else if (platformFile.path != null && platformFile.path!.isNotEmpty) {
+      return await http.MultipartFile.fromPath(
+        fieldName,
+        platformFile.path!,
+        filename: platformFile.name,
+      );
+    } else {
+      throw Exception('File data not available for $fieldName');
+    }
   }
 
   // Auth Endpoints
@@ -122,8 +142,8 @@ class ApiService {
     required String token,
     required String name,
     required String visibility,
-    required File audioFile,
-    File? thumbnailFile,
+    required PlatformFile audioFile,
+    PlatformFile? thumbnailFile,
   }) async {
     final uri = Uri.parse('$baseUrl/audio/upload');
     final request = http.MultipartRequest('POST', uri);
@@ -132,16 +152,10 @@ class ApiService {
     request.fields['name'] = name;
     request.fields['visibility'] = visibility;
 
-    request.files.add(await http.MultipartFile.fromPath(
-      'audio',
-      audioFile.path,
-    ));
+    request.files.add(await _buildMultipartFile('audio', audioFile));
 
     if (thumbnailFile != null) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'thumbnail',
-        thumbnailFile.path,
-      ));
+      request.files.add(await _buildMultipartFile('thumbnail', thumbnailFile));
     }
 
     final streamedResponse = await request.send();
@@ -205,7 +219,7 @@ class ApiService {
     required String token,
     required String name,
     required String visibility,
-    File? imageFile,
+    PlatformFile? imageFile,
   }) async {
     final uri = Uri.parse('$baseUrl/playlists');
     final request = http.MultipartRequest('POST', uri);
@@ -215,10 +229,7 @@ class ApiService {
     request.fields['visibility'] = visibility;
 
     if (imageFile != null) {
-      request.files.add(await http.MultipartFile.fromPath(
-        'image',
-        imageFile.path,
-      ));
+      request.files.add(await _buildMultipartFile('image', imageFile));
     }
 
     final streamedResponse = await request.send();

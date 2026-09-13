@@ -30,12 +30,12 @@ class _HomeScreenState extends State<HomeScreen> {
   final _searchController = TextEditingController();
   final _uploadTitleController = TextEditingController();
   String _uploadVisibility = 'public';
-  File? _selectedAudioFile;
-  File? _selectedThumbnailFile;
+  PlatformFile? _selectedAudioFile;
+  PlatformFile? _selectedThumbnailFile;
 
   final _playlistNameController = TextEditingController();
   String _playlistVisibility = 'public';
-  File? _selectedPlaylistCover;
+  PlatformFile? _selectedPlaylistCover;
 
   @override
   void initState() {
@@ -57,10 +57,11 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _pickAudioFile() async {
     final result = await FilePicker.pickFiles(
       type: FileType.audio,
+      withData: true,
     );
-    if (result.isNotEmpty && result.first.path != null) {
-      final selectedPath = result.first.path!;
-      final filename = selectedPath.split(Platform.pathSeparator).last;
+    if (result.isNotEmpty) {
+      final picked = result.first;
+      final filename = picked.name;
 
       String autoTitle = filename;
       if (autoTitle.contains('.')) {
@@ -69,26 +70,32 @@ class _HomeScreenState extends State<HomeScreen> {
       autoTitle = autoTitle.replaceAll('_', ' ').replaceAll('-', ' ').trim();
 
       setState(() {
-        _selectedAudioFile = File(selectedPath);
+        _selectedAudioFile = picked;
         _uploadTitleController.text = autoTitle;
       });
     }
   }
 
   Future<void> _pickThumbnailFile() async {
-    final result = await FilePicker.pickFiles(type: FileType.image);
-    if (result.isNotEmpty && result.first.path != null) {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    if (result.isNotEmpty) {
       setState(() {
-        _selectedThumbnailFile = File(result.first.path!);
+        _selectedThumbnailFile = result.first;
       });
     }
   }
 
   Future<void> _pickPlaylistCover() async {
-    final result = await FilePicker.pickFiles(type: FileType.image);
-    if (result.isNotEmpty && result.first.path != null) {
+    final result = await FilePicker.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+    if (result.isNotEmpty) {
       setState(() {
-        _selectedPlaylistCover = File(result.first.path!);
+        _selectedPlaylistCover = result.first;
       });
     }
   }
@@ -672,7 +679,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Audio: ${_selectedAudioFile!.path.split(Platform.pathSeparator).last}',
+                            'Audio: ${_selectedAudioFile!.name}',
                             style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
@@ -689,7 +696,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         const SizedBox(width: 8),
                         Expanded(
                           child: Text(
-                            'Cover: ${_selectedThumbnailFile!.path.split(Platform.pathSeparator).last}',
+                            'Cover: ${_selectedThumbnailFile!.name}',
                             style: const TextStyle(color: Colors.white70, fontSize: 13),
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,

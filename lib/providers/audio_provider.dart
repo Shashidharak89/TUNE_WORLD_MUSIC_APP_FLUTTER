@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:file_picker/file_picker.dart';
 import '../models/audio_model.dart';
 import '../services/api_service.dart';
 
@@ -116,8 +116,8 @@ class AudioProvider extends ChangeNotifier {
     required String token,
     required String name,
     required String visibility,
-    required File audioFile,
-    File? thumbnailFile,
+    required PlatformFile audioFile,
+    PlatformFile? thumbnailFile,
   }) async {
     _isUploading = true;
     _errorMessage = null;
