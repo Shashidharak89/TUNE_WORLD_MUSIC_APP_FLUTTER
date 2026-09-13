@@ -49,8 +49,8 @@ class _HomeScreenState extends State<HomeScreen> {
     final audioProv = Provider.of<AudioProvider>(context, listen: false);
     final playlistProv = Provider.of<PlaylistProvider>(context, listen: false);
 
-    audioProv.fetchPublicAudios(page: 1, pageSize: 10);
-    playlistProv.fetchPublicPlaylists(page: 1, pageSize: 10);
+    audioProv.fetchPublicAudios(page: 1, pageSize: 50);
+    playlistProv.fetchPublicPlaylists(page: 1, pageSize: 50);
   }
 
   // File Picker Helpers
@@ -270,7 +270,7 @@ class _HomeScreenState extends State<HomeScreen> {
                         onPressed: () {
                           audioProv.fetchPublicAudios(
                             page: 1,
-                            pageSize: 10,
+                            pageSize: 50,
                             search: _searchController.text.trim(),
                           );
                         },
@@ -369,34 +369,29 @@ class _HomeScreenState extends State<HomeScreen> {
                                 audio: song,
                                 audioHandler: widget.audioHandler,
                                 playlistQueue: audioProv.publicAudios,
+                                index: index,
+                                onFetchMore: () => audioProv.loadMorePublicAudios(),
                               );
                             },
                           ),
 
-                // Pagination Controls
-                if (audioProv.publicTotalPages > 1)
+                // View More Songs Button
+                if (audioProv.publicPage < audioProv.publicTotalPages)
                   Padding(
                     padding: const EdgeInsets.symmetric(vertical: 16),
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        IconButton(
-                          icon: const Icon(Icons.chevron_left, color: Colors.white),
-                          onPressed: audioProv.publicPage > 1
-                              ? () => audioProv.fetchPublicAudios(page: audioProv.publicPage - 1, pageSize: 10)
-                              : null,
-                        ),
-                        Text(
-                          'Page ${audioProv.publicPage}',
-                          style: const TextStyle(color: Colors.white70),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.chevron_right, color: Colors.white),
-                          onPressed: audioProv.publicPage < audioProv.publicTotalPages
-                              ? () => audioProv.fetchPublicAudios(page: audioProv.publicPage + 1, pageSize: 10)
-                              : null,
-                        ),
-                      ],
+                    child: Center(
+                      child: audioProv.isLoadingMorePublic
+                          ? const CircularProgressIndicator(color: AppTheme.primaryAccent)
+                          : ElevatedButton.icon(
+                              onPressed: () => audioProv.loadMorePublicAudios(),
+                              icon: const Icon(Icons.expand_more, color: Colors.black),
+                              label: const Text('View More Songs', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: AppTheme.primaryAccent,
+                                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                              ),
+                            ),
                     ),
                   ),
 
@@ -436,8 +431,27 @@ class _HomeScreenState extends State<HomeScreen> {
                     }
                     return ListView.builder(
                       padding: const EdgeInsets.all(16),
-                      itemCount: pProv.publicPlaylists.length,
+                      itemCount: pProv.publicPlaylists.length + (pProv.publicPage < pProv.publicTotalPages ? 1 : 0),
                       itemBuilder: (context, index) {
+                        if (index == pProv.publicPlaylists.length) {
+                          return Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: pProv.isLoadingMorePublic
+                                  ? const CircularProgressIndicator(color: AppTheme.primaryAccent)
+                                  : ElevatedButton.icon(
+                                      onPressed: () => pProv.loadMorePublicPlaylists(),
+                                      icon: const Icon(Icons.expand_more, color: Colors.black),
+                                      label: const Text('View More Playlists', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.primaryAccent,
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                      ),
+                                    ),
+                            ),
+                          );
+                        }
                         final pl = pProv.publicPlaylists[index];
                         return ListTile(
                           contentPadding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -502,8 +516,27 @@ class _HomeScreenState extends State<HomeScreen> {
 
                       return ListView.builder(
                         padding: const EdgeInsets.all(16),
-                        itemCount: pProv.myPlaylists.length,
+                        itemCount: pProv.myPlaylists.length + (pProv.myPage < pProv.myTotalPages ? 1 : 0),
                         itemBuilder: (context, index) {
+                          if (index == pProv.myPlaylists.length) {
+                            return Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: pProv.isLoadingMoreMy
+                                    ? const CircularProgressIndicator(color: AppTheme.primaryAccent)
+                                    : ElevatedButton.icon(
+                                        onPressed: () => pProv.loadMoreMyPlaylists(auth.token!),
+                                        icon: const Icon(Icons.expand_more, color: Colors.black),
+                                        label: const Text('View More Playlists', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppTheme.primaryAccent,
+                                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                        ),
+                                      ),
+                              ),
+                            );
+                          }
                           final pl = pProv.myPlaylists[index];
                           return Container(
                             margin: const EdgeInsets.only(bottom: 12),
@@ -732,7 +765,7 @@ class _HomeScreenState extends State<HomeScreen> {
           const SizedBox(height: 12),
           ElevatedButton.icon(
             onPressed: () {
-              audioProv.fetchMyAudios(token: auth.token!, page: 1, pageSize: 20);
+              audioProv.fetchMyAudios(token: auth.token!, page: 1, pageSize: 50);
             },
             icon: const Icon(Icons.refresh),
             label: const Text('Refresh My Uploads'),
@@ -743,17 +776,41 @@ class _HomeScreenState extends State<HomeScreen> {
               ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
               : audioProv.myAudios.isEmpty
                   ? const Text('No uploads found yet.', style: TextStyle(color: Colors.grey))
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: audioProv.myAudios.length,
-                      itemBuilder: (context, index) {
-                        return AudioTileWidget(
-                          audio: audioProv.myAudios[index],
-                          audioHandler: widget.audioHandler,
-                          playlistQueue: audioProv.myAudios,
-                        );
-                      },
+                  : Column(
+                      children: [
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: audioProv.myAudios.length,
+                          itemBuilder: (context, index) {
+                            return AudioTileWidget(
+                              audio: audioProv.myAudios[index],
+                              audioHandler: widget.audioHandler,
+                              playlistQueue: audioProv.myAudios,
+                              index: index,
+                              onFetchMore: () => audioProv.loadMoreMyAudios(auth.token!),
+                            );
+                          },
+                        ),
+                        if (audioProv.myPage < audioProv.myTotalPages)
+                          Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Center(
+                              child: audioProv.isLoadingMoreMy
+                                  ? const CircularProgressIndicator(color: AppTheme.primaryAccent)
+                                  : ElevatedButton.icon(
+                                      onPressed: () => audioProv.loadMoreMyAudios(auth.token!),
+                                      icon: const Icon(Icons.expand_more, color: Colors.black),
+                                      label: const Text('View More Uploads', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                      style: ElevatedButton.styleFrom(
+                                        backgroundColor: AppTheme.primaryAccent,
+                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                      ),
+                                    ),
+                            ),
+                          ),
+                      ],
                     ),
           const SizedBox(height: 80),
         ],
@@ -924,7 +981,7 @@ class _HomeScreenState extends State<HomeScreen> {
             _currentIndex = idx;
           });
           if (idx == 1 && auth.isLoggedIn) {
-            Provider.of<PlaylistProvider>(context, listen: false).fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 20);
+            Provider.of<PlaylistProvider>(context, listen: false).fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 50);
           }
         },
         items: const [

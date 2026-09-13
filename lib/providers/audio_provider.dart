@@ -9,23 +9,27 @@ class AudioProvider extends ChangeNotifier {
 
   bool _isLoadingPublic = false;
   bool _isLoadingMy = false;
+  bool _isLoadingMorePublic = false;
+  bool _isLoadingMoreMy = false;
   bool _isUploading = false;
   String? _errorMessage;
 
   int _publicPage = 1;
   int _publicTotalPages = 1;
-  int _publicPageSize = 10;
+  int _publicPageSize = 50; // Initial page size set to 50 everywhere
   String _publicSearch = '';
 
   int _myPage = 1;
   int _myTotalPages = 1;
-  int _myPageSize = 10;
+  int _myPageSize = 50; // Initial page size set to 50 everywhere
   String _mySearch = '';
 
   List<AudioModel> get publicAudios => _publicAudios;
   List<AudioModel> get myAudios => _myAudios;
   bool get isLoadingPublic => _isLoadingPublic;
   bool get isLoadingMy => _isLoadingMy;
+  bool get isLoadingMorePublic => _isLoadingMorePublic;
+  bool get isLoadingMoreMy => _isLoadingMoreMy;
   bool get isUploading => _isUploading;
   String? get errorMessage => _errorMessage;
 
@@ -73,6 +77,45 @@ class AudioProvider extends ChangeNotifier {
     }
   }
 
+  // Load More Public Audios (Append next page)
+  Future<bool> loadMorePublicAudios() async {
+    if (_publicPage >= _publicTotalPages || _isLoadingMorePublic) {
+      return false;
+    }
+
+    _isLoadingMorePublic = true;
+    notifyListeners();
+
+    try {
+      final nextPage = _publicPage + 1;
+      final res = await ApiService.getPublicAudios(
+        page: nextPage,
+        pageSize: _publicPageSize,
+        search: _publicSearch,
+      );
+
+      final List listData = res['audios'] ?? [];
+      final newItems = listData.map((e) => AudioModel.fromJson(e)).toList();
+
+      if (newItems.isNotEmpty) {
+        _publicAudios.addAll(newItems);
+        _publicPage = nextPage;
+        if (res['pagination'] != null) {
+          _publicTotalPages = res['pagination']['totalPages'] ?? _publicTotalPages;
+        }
+        _isLoadingMorePublic = false;
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      print('Error loading more public audios: $e');
+    }
+
+    _isLoadingMorePublic = false;
+    notifyListeners();
+    return false;
+  }
+
   // Fetch User's Uploaded Audios
   Future<void> fetchMyAudios({
     required String token,
@@ -109,6 +152,46 @@ class AudioProvider extends ChangeNotifier {
       _isLoadingMy = false;
       notifyListeners();
     }
+  }
+
+  // Load More User Audios (Append next page)
+  Future<bool> loadMoreMyAudios(String token) async {
+    if (_myPage >= _myTotalPages || _isLoadingMoreMy) {
+      return false;
+    }
+
+    _isLoadingMoreMy = true;
+    notifyListeners();
+
+    try {
+      final nextPage = _myPage + 1;
+      final res = await ApiService.getMyAudios(
+        token: token,
+        page: nextPage,
+        pageSize: _myPageSize,
+        search: _mySearch,
+      );
+
+      final List listData = res['audios'] ?? [];
+      final newItems = listData.map((e) => AudioModel.fromJson(e)).toList();
+
+      if (newItems.isNotEmpty) {
+        _myAudios.addAll(newItems);
+        _myPage = nextPage;
+        if (res['pagination'] != null) {
+          _myTotalPages = res['pagination']['totalPages'] ?? _myTotalPages;
+        }
+        _isLoadingMoreMy = false;
+        notifyListeners();
+        return true;
+      }
+    } catch (e) {
+      print('Error loading more user audios: $e');
+    }
+
+    _isLoadingMoreMy = false;
+    notifyListeners();
+    return false;
   }
 
   // Upload New Audio

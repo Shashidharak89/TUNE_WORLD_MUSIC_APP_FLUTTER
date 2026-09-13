@@ -20,6 +20,9 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   List<AudioModel> _playlist = [];
   int _currentIndex = -1;
 
+  // Callback to auto-fetch next page when end of current queue is reached
+  Future<bool> Function()? onFetchMore;
+
   AudioPlayer get player => _player;
   List<AudioModel> get playlist => _playlist;
   int get currentIndex => _currentIndex;
@@ -75,10 +78,25 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     });
   }
 
-  Future<void> playTrack(AudioModel audio, {List<AudioModel>? queueList, int? index}) async {
+  void appendQueue(List<AudioModel> newAudios) {
+    _playlist.addAll(newAudios);
+  }
+
+  Future<void> playTrack(AudioModel audio, {
+    List<AudioModel>? queueList,
+    int? index,
+    Future<bool> Function()? fetchMoreCallback,
+  }) async {
+    if (fetchMoreCallback != null) {
+      onFetchMore = fetchMoreCallback;
+    }
+
     if (queueList != null && queueList.isNotEmpty) {
       _playlist = List.from(queueList);
-      _currentIndex = index ?? _playlist.indexWhere((item) => item.id == audio.id);
+      _currentIndex = index ??
+          _playlist.indexWhere((item) =>
+              (item.id.isNotEmpty && item.id == audio.id) ||
+              (item.audioUrl.isNotEmpty && item.audioUrl == audio.audioUrl));
       if (_currentIndex == -1) _currentIndex = 0;
     } else {
       _playlist = [audio];
@@ -89,7 +107,7 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     
     // Create MediaItem for system notification controls
     final item = MediaItem(
-      id: currentAudio.id,
+      id: currentAudio.id.isNotEmpty ? currentAudio.id : currentAudio.audioUrl,
       title: currentAudio.name,
       artist: currentAudio.userName ?? 'Tune World Artist',
       album: 'Tune World',
@@ -102,6 +120,7 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     mediaItem.add(item);
     
     try {
+      await _player.stop();
       await _player.setUrl(currentAudio.audioUrl);
       await _player.play();
     } catch (e) {
@@ -127,12 +146,25 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   @override
   Future<void> skipToNext() async {
     if (_playlist.isEmpty) return;
+
     if (_currentIndex < _playlist.length - 1) {
       _currentIndex++;
       await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
-    } else if (_playlist.isNotEmpty) {
-      _currentIndex = 0;
-      await playTrack(_playlist[0], queueList: _playlist, index: 0);
+    } else {
+      // Reached the end of current local queue - check if more tracks can be fetched automatically
+      if (onFetchMore != null) {
+        final hasMore = await onFetchMore!();
+        if (hasMore && _currentIndex < _playlist.length - 1) {
+          _currentIndex++;
+          await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+          return;
+        }
+      }
+      // Fallback: Loop back to start if no more pages
+      if (_playlist.isNotEmpty) {
+        _currentIndex = 0;
+        await playTrack(_playlist[0], queueList: _playlist, index: 0);
+      }
     }
   }
 

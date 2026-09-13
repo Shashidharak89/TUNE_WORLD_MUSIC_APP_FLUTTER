@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:audio_service/audio_service.dart';
 import '../models/audio_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
@@ -10,12 +11,16 @@ class AudioTileWidget extends StatelessWidget {
   final AudioModel audio;
   final TuneWorldAudioHandler audioHandler;
   final List<AudioModel> playlistQueue;
+  final int? index;
+  final Future<bool> Function()? onFetchMore;
 
   const AudioTileWidget({
     super.key,
     required this.audio,
     required this.audioHandler,
     required this.playlistQueue,
+    this.index,
+    this.onFetchMore,
   });
 
   void _showAddToPlaylistDialog(BuildContext context) {
@@ -99,7 +104,7 @@ class AudioTileWidget extends StatelessWidget {
                             width: 40,
                             height: 40,
                             decoration: BoxDecoration(
-                              color: AppTheme.purpleAccent.withOpacity(0.3),
+                              color: AppTheme.purpleAccent.withValues(alpha: 0.3),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: const Icon(Icons.queue_music, color: AppTheme.primaryAccent),
@@ -147,92 +152,233 @@ class AudioTileWidget extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-      decoration: BoxDecoration(
-        color: AppTheme.cardBg,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(
-          color: Colors.white.withOpacity(0.05),
-          width: 1,
-        ),
-      ),
-      child: ListTile(
-        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-        leading: ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: Container(
-            width: 50,
-            height: 50,
-            color: AppTheme.purpleAccent.withOpacity(0.2),
-            child: audio.thumbnailImageUrl.isNotEmpty
-                ? Image.network(
-                    audio.thumbnailImageUrl,
-                    fit: BoxFit.cover,
-                    errorBuilder: (_, __, ___) => const Icon(
-                      Icons.music_note,
-                      color: AppTheme.primaryAccent,
+    return StreamBuilder<MediaItem?>(
+      stream: audioHandler.mediaItem,
+      builder: (context, mediaSnap) {
+        final currentMedia = mediaSnap.data;
+        final isSelected = currentMedia != null &&
+            ((currentMedia.id.isNotEmpty && currentMedia.id == audio.id) ||
+                currentMedia.extras?['url'] == audio.audioUrl);
+
+        return StreamBuilder<PlaybackState>(
+          stream: audioHandler.playbackState,
+          builder: (context, stateSnap) {
+            final isPlaying = isSelected && (stateSnap.data?.playing ?? false);
+
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+              decoration: BoxDecoration(
+                color: isSelected
+                    ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                    : AppTheme.cardBg,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(
+                  color: isSelected
+                      ? AppTheme.primaryAccent
+                      : Colors.white.withValues(alpha: 0.05),
+                  width: isSelected ? 1.5 : 1,
+                ),
+                boxShadow: isSelected
+                    ? [
+                        BoxShadow(
+                          color: AppTheme.primaryAccent.withValues(alpha: 0.25),
+                          blurRadius: 8,
+                          offset: const Offset(0, 2),
+                        )
+                      ]
+                    : [],
+              ),
+              child: ListTile(
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                leading: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      Container(
+                        width: 50,
+                        height: 50,
+                        color: AppTheme.purpleAccent.withValues(alpha: 0.2),
+                        child: audio.thumbnailImageUrl.isNotEmpty
+                            ? Image.network(
+                                audio.thumbnailImageUrl,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.music_note,
+                                  color: AppTheme.primaryAccent,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.music_note,
+                                color: AppTheme.primaryAccent,
+                              ),
+                      ),
+                      if (isSelected)
+                        Container(
+                          width: 50,
+                          height: 50,
+                          color: Colors.black.withValues(alpha: 0.45),
+                          child: Icon(
+                            isPlaying
+                                ? Icons.graphic_eq_rounded
+                                : Icons.play_arrow_rounded,
+                            color: AppTheme.primaryAccent,
+                            size: 28,
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
+                title: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        audio.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight:
+                              isSelected ? FontWeight.bold : FontWeight.w600,
+                          fontSize: 15,
+                          color: isSelected
+                              ? AppTheme.primaryAccent
+                              : Colors.white,
+                        ),
+                      ),
                     ),
-                  )
-                : const Icon(
-                    Icons.music_note,
-                    color: AppTheme.primaryAccent,
-                  ),
-          ),
-        ),
-        title: Text(
-          audio.name,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontWeight: FontWeight.w600,
-            fontSize: 15,
-            color: Colors.white,
-          ),
-        ),
-        subtitle: Row(
-          children: [
-            Expanded(
-              child: Text(
-                audio.userName ?? 'Tune World Artist',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.white60,
+                    if (isSelected)
+                      Container(
+                        margin: const EdgeInsets.only(left: 6),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: AppTheme.primaryAccent,
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          isPlaying ? 'PLAYING' : 'PAUSED',
+                          style: const TextStyle(
+                            color: Colors.black,
+                            fontSize: 9,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
+                subtitle: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        audio.userName ?? 'Tune World Artist',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: isSelected ? Colors.white70 : Colors.white60,
+                        ),
+                      ),
+                    ),
+                    if (audio.visibility != 'public')
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                        margin: const EdgeInsets.only(left: 6),
+                        decoration: BoxDecoration(
+                          color: audio.visibility == 'private'
+                              ? Colors.red.withValues(alpha: 0.2)
+                              : Colors.orange.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: Text(
+                          audio.visibility,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: audio.visibility == 'private'
+                                ? Colors.redAccent
+                                : Colors.orangeAccent,
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        isSelected
+                            ? (isPlaying
+                                ? Icons.pause_circle_filled_rounded
+                                : Icons.play_circle_fill_rounded)
+                            : Icons.play_arrow_rounded,
+                        color: isSelected
+                            ? AppTheme.primaryAccent
+                            : Colors.white70,
+                        size: 28,
+                      ),
+                      onPressed: () {
+                        if (isSelected) {
+                          if (isPlaying) {
+                            audioHandler.pause();
+                          } else {
+                            audioHandler.play();
+                          }
+                        } else {
+                          audioHandler.playTrack(
+                            audio,
+                            queueList: playlistQueue,
+                            index: index,
+                            fetchMoreCallback: onFetchMore != null
+                                ? () async {
+                                    final success = await onFetchMore!();
+                                    if (success) {
+                                      audioHandler.appendQueue(playlistQueue);
+                                    }
+                                    return success;
+                                  }
+                                : null,
+                          );
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.more_vert, color: Colors.white70),
+                      onPressed: () => _showAddToPlaylistDialog(context),
+                    ),
+                  ],
+                ),
+                onTap: () {
+                  if (isSelected) {
+                    if (isPlaying) {
+                      audioHandler.pause();
+                    } else {
+                      audioHandler.play();
+                    }
+                  } else {
+                    audioHandler.playTrack(
+                      audio,
+                      queueList: playlistQueue,
+                      index: index,
+                      fetchMoreCallback: onFetchMore != null
+                          ? () async {
+                              final success = await onFetchMore!();
+                              if (success) {
+                                audioHandler.appendQueue(playlistQueue);
+                              }
+                              return success;
+                            }
+                          : null,
+                    );
+                  }
+                },
               ),
-            ),
-            if (audio.visibility != 'public')
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                margin: const EdgeInsets.only(left: 6),
-                decoration: BoxDecoration(
-                  color: audio.visibility == 'private'
-                      ? Colors.red.withOpacity(0.2)
-                      : Colors.orange.withOpacity(0.2),
-                  borderRadius: BorderRadius.circular(4),
-                ),
-                child: Text(
-                  audio.visibility,
-                  style: TextStyle(
-                    fontSize: 10,
-                    color: audio.visibility == 'private'
-                        ? Colors.redAccent
-                        : Colors.orangeAccent,
-                  ),
-                ),
-              ),
-          ],
-        ),
-        trailing: IconButton(
-          icon: const Icon(Icons.more_vert, color: Colors.white70),
-          onPressed: () => _showAddToPlaylistDialog(context),
-        ),
-        onTap: () {
-          audioHandler.playTrack(audio, queueList: playlistQueue);
-        },
-      ),
+            );
+          },
+        );
+      },
     );
   }
 }
