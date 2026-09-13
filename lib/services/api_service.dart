@@ -7,10 +7,10 @@ import '../models/audio_model.dart';
 import '../models/playlist_model.dart';
 
 class ApiService {
-  // Default base URL uses localhost:5000/api. On Android emulator, 10.0.2.2 maps to host localhost.
+  // Default base URL for TuneWorld backend API
   static String baseUrl = const String.fromEnvironment(
     'BACKEND_URL',
-    defaultValue: 'http://localhost:5000/api',
+    defaultValue: 'https://tuneworld.learnix.dev/api',
   );
 
   static Map<String, String> _headers(String? token) {
