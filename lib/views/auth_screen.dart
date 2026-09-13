@@ -98,7 +98,22 @@ class _AuthScreenState extends State<AuthScreen> with SingleTickerProviderStateM
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    const Icon(Icons.music_note, size: 70, color: AppTheme.primaryAccent),
+                    Center(
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(16),
+                        child: Image.asset(
+                          'logo/TuneWorld.png',
+                          height: 80,
+                          width: 80,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.music_note,
+                            size: 70,
+                            color: AppTheme.primaryAccent,
+                          ),
+                        ),
+                      ),
+                    ),
                     const SizedBox(height: 16),
                     const Text(
                       'Log in to your account',

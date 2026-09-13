@@ -56,12 +56,21 @@ class _HomeScreenState extends State<HomeScreen> {
   // File Picker Helpers
   Future<void> _pickAudioFile() async {
     final result = await FilePicker.pickFiles(
-      type: FileType.custom,
-      allowedExtensions: ['mp3', 'wav', 'aac', 'm4a', 'flac', 'ogg'],
+      type: FileType.audio,
     );
     if (result.isNotEmpty && result.first.path != null) {
+      final selectedPath = result.first.path!;
+      final filename = selectedPath.split(Platform.pathSeparator).last;
+
+      String autoTitle = filename;
+      if (autoTitle.contains('.')) {
+        autoTitle = autoTitle.substring(0, autoTitle.lastIndexOf('.'));
+      }
+      autoTitle = autoTitle.replaceAll('_', ' ').replaceAll('-', ' ').trim();
+
       setState(() {
-        _selectedAudioFile = File(result.first.path!);
+        _selectedAudioFile = File(selectedPath);
+        _uploadTitleController.text = autoTitle;
       });
     }
   }
@@ -644,6 +653,55 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
             ],
           ),
+          if (_selectedAudioFile != null || _selectedThumbnailFile != null) ...[
+            const SizedBox(height: 12),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: AppTheme.cardBg,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.primaryAccent.withOpacity(0.3)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (_selectedAudioFile != null)
+                    Row(
+                      children: [
+                        const Icon(Icons.music_note, color: AppTheme.primaryAccent, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Audio: ${_selectedAudioFile!.path.split(Platform.pathSeparator).last}',
+                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                      ],
+                    ),
+                  if (_selectedAudioFile != null && _selectedThumbnailFile != null) const SizedBox(height: 6),
+                  if (_selectedThumbnailFile != null)
+                    Row(
+                      children: [
+                        const Icon(Icons.image, color: AppTheme.purpleAccent, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Cover: ${_selectedThumbnailFile!.path.split(Platform.pathSeparator).last}',
+                            style: const TextStyle(color: Colors.white70, fontSize: 13),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 20),
           SizedBox(
             width: double.infinity,
@@ -792,10 +850,25 @@ class _HomeScreenState extends State<HomeScreen> {
       appBar: AppBar(
         title: Row(
           mainAxisSize: MainAxisSize.min,
-          children: const [
-            Icon(Icons.graphic_eq_rounded, color: AppTheme.primaryAccent),
-            SizedBox(width: 8),
-            Text('Tune World'),
+          children: [
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: Image.asset(
+                'logo/TuneWorld.png',
+                height: 32,
+                width: 32,
+                fit: BoxFit.cover,
+                errorBuilder: (_, __, ___) => const Icon(
+                  Icons.graphic_eq_rounded,
+                  color: AppTheme.primaryAccent,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            const Text(
+              'TuneWorld',
+              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+            ),
           ],
         ),
         actions: [
