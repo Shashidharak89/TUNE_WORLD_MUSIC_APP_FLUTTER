@@ -23,21 +23,12 @@ class ApiService {
 
   static Future<http.MultipartFile> _buildMultipartFile(
       String fieldName, PlatformFile platformFile) async {
-    if (platformFile.bytes != null && platformFile.bytes!.isNotEmpty) {
-      return http.MultipartFile.fromBytes(
-        fieldName,
-        platformFile.bytes!,
-        filename: platformFile.name,
-      );
-    } else if (platformFile.path != null && platformFile.path!.isNotEmpty) {
-      return await http.MultipartFile.fromPath(
-        fieldName,
-        platformFile.path!,
-        filename: platformFile.name,
-      );
-    } else {
-      throw Exception('File data not available for $fieldName');
-    }
+    final bytes = await platformFile.readAsBytes();
+    return http.MultipartFile.fromBytes(
+      fieldName,
+      bytes,
+      filename: platformFile.name,
+    );
   }
 
   // Auth Endpoints
