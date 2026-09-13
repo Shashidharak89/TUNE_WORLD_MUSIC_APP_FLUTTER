@@ -1,4 +1,4 @@
-import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
@@ -700,7 +700,7 @@ class _HomeScreenState extends State<HomeScreen> {
               decoration: BoxDecoration(
                 color: AppTheme.cardBg,
                 borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.primaryAccent.withOpacity(0.3)),
+                border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
               ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -718,26 +718,80 @@ class _HomeScreenState extends State<HomeScreen> {
                             overflow: TextOverflow.ellipsis,
                           ),
                         ),
-                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                        IconButton(
+                          icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
+                          onPressed: () => setState(() => _selectedAudioFile = null),
+                        ),
                       ],
                     ),
-                  if (_selectedAudioFile != null && _selectedThumbnailFile != null) const SizedBox(height: 6),
-                  if (_selectedThumbnailFile != null)
+                  if (_selectedThumbnailFile != null) ...[
+                    const SizedBox(height: 8),
                     Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Icon(Icons.image, color: AppTheme.purpleAccent, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Cover: ${_selectedThumbnailFile!.name}',
-                            style: const TextStyle(color: Colors.white70, fontSize: 13),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: Container(
+                            width: 80,
+                            height: 80,
+                            color: AppTheme.purpleAccent.withValues(alpha: 0.3),
+                            child: FutureBuilder<Uint8List>(
+                              future: _selectedThumbnailFile!.readAsBytes(),
+                              builder: (context, snapshot) {
+                                if (snapshot.hasData && snapshot.data != null) {
+                                  return Image.memory(
+                                    snapshot.data!,
+                                    fit: BoxFit.cover,
+                                  );
+                                }
+                                return const Center(
+                                  child: CircularProgressIndicator(
+                                    color: AppTheme.primaryAccent,
+                                    strokeWidth: 2,
+                                  ),
+                                );
+                              },
+                            ),
                           ),
                         ),
-                        const Icon(Icons.check_circle, color: Colors.greenAccent, size: 18),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Thumbnail Preview',
+                                style: TextStyle(
+                                  color: AppTheme.primaryAccent,
+                                  fontWeight: FontWeight.bold,
+                                  fontSize: 13,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _selectedThumbnailFile!.name,
+                                style: const TextStyle(color: Colors.white70, fontSize: 12),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              const SizedBox(height: 6),
+                              OutlinedButton.icon(
+                                onPressed: () => setState(() => _selectedThumbnailFile = null),
+                                icon: const Icon(Icons.delete_outline, size: 14, color: Colors.redAccent),
+                                label: const Text('Remove Thumbnail', style: TextStyle(color: Colors.redAccent, fontSize: 11)),
+                                style: OutlinedButton.styleFrom(
+                                  side: const BorderSide(color: Colors.redAccent),
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  minimumSize: Size.zero,
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
+                  ],
                 ],
               ),
             ),

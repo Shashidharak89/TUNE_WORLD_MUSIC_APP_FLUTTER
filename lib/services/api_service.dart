@@ -31,6 +31,23 @@ class ApiService {
     );
   }
 
+  static Map<String, dynamic> _parseResponse(http.Response response) {
+    final body = response.body.trim();
+    if (body.startsWith('<') || body.contains('<html>') || body.contains('<!DOCTYPE')) {
+      throw Exception('Server returned HTML response (${response.statusCode}): ${response.reasonPhrase ?? "Error"}. Please verify backend server.');
+    }
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map<String, dynamic>) {
+        return decoded;
+      }
+      throw Exception('Invalid JSON structure returned from server.');
+    } catch (e) {
+      if (e is Exception) rethrow;
+      throw Exception('Failed to decode server response: $e');
+    }
+  }
+
   // Auth Endpoints
   static Future<Map<String, dynamic>> register(
       String name, String email, String password) async {
@@ -44,7 +61,7 @@ class ApiService {
       }),
     );
 
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
     if (response.statusCode == 201) {
       return data;
     } else {
@@ -63,7 +80,7 @@ class ApiService {
       }),
     );
 
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
     if (response.statusCode == 200) {
       return data;
     } else {
@@ -77,7 +94,7 @@ class ApiService {
       headers: _headers(token),
     );
 
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
     if (response.statusCode == 200 && data['success'] == true) {
       return UserModel.fromJson(data['user']);
     } else {
@@ -98,7 +115,7 @@ class ApiService {
     });
 
     final response = await http.get(uri, headers: _headers(null));
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 200 && data['success'] == true) {
       return data;
@@ -120,7 +137,7 @@ class ApiService {
     });
 
     final response = await http.get(uri, headers: _headers(token));
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 200 && data['success'] == true) {
       return data;
@@ -151,7 +168,7 @@ class ApiService {
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 201 && data['success'] == true) {
       return AudioModel.fromJson(data['audio']);
@@ -174,7 +191,7 @@ class ApiService {
     });
 
     final response = await http.get(uri, headers: _headers(null));
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 200 && data['success'] == true) {
       return data;
@@ -197,7 +214,7 @@ class ApiService {
     });
 
     final response = await http.get(uri, headers: _headers(token));
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 200 && data['success'] == true) {
       return data;
@@ -225,7 +242,7 @@ class ApiService {
 
     final streamedResponse = await request.send();
     final response = await http.Response.fromStream(streamedResponse);
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 201 && data['success'] == true) {
       return PlaylistModel.fromJson(data['playlist']);
@@ -245,7 +262,7 @@ class ApiService {
       body: jsonEncode({'audioId': audioId}),
     );
 
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
     if (response.statusCode != 201 || data['success'] != true) {
       throw Exception(data['message'] ?? 'Failed to add audio to playlist');
     }
@@ -267,7 +284,7 @@ class ApiService {
     );
 
     final response = await http.get(uri, headers: _headers(token));
-    final data = jsonDecode(response.body);
+    final data = _parseResponse(response);
 
     if (response.statusCode == 200 && data['success'] == true) {
       return data;
