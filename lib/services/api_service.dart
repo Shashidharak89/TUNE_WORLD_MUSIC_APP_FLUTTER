@@ -166,7 +166,12 @@ class ApiService {
       request.files.add(await _buildMultipartFile('thumbnail', thumbnailFile));
     }
 
-    final streamedResponse = await request.send();
+    final streamedResponse = await request.send().timeout(
+      const Duration(minutes: 3),
+      onTimeout: () {
+        throw Exception('Upload timed out. Please check your network connection and try again.');
+      },
+    );
     final response = await http.Response.fromStream(streamedResponse);
     final data = _parseResponse(response);
 

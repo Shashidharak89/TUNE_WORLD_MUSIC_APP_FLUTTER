@@ -116,6 +116,22 @@ class _HomeScreenState extends State<HomeScreen> {
       return;
     }
 
+    // Client-side file size constraint (Max 100MB)
+    final audioBytes = await _selectedAudioFile!.readAsBytes();
+    const maxSizeBytes = 100 * 1024 * 1024;
+    if (audioBytes.length > maxSizeBytes) {
+      if (!mounted) return;
+      final double mbSize = audioBytes.length / (1024 * 1024);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Selected audio file (${mbSize.toStringAsFixed(1)}MB) exceeds the 100MB limit. Please select a smaller file.',
+          ),
+        ),
+      );
+      return;
+    }
+
     final success = await audioProv.uploadAudio(
       token: auth.token!,
       name: _uploadTitleController.text.trim(),
