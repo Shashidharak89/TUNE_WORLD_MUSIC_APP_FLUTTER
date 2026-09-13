@@ -153,32 +153,101 @@ class ApiService {
     required PlatformFile audioFile,
     PlatformFile? thumbnailFile,
   }) async {
-    final uri = Uri.parse('$baseUrl/audio/upload');
-    final request = http.MultipartRequest('POST', uri);
+    // Step 1: Request signed upload credentials from backend API
+    final sigUri = Uri.parse('$baseUrl/audio/cloudinary-signature').replace(
+      queryParameters: {'folder': 'tune_world/audios'},
+    );
+    final sigResponse = await http.get(sigUri, headers: _headers(token));
+    final sigData = _parseResponse(sigResponse);
 
-    request.headers['Authorization'] = 'Bearer $token';
-    request.fields['name'] = name;
-    request.fields['visibility'] = visibility;
-
-    request.files.add(await _buildMultipartFile('audio', audioFile));
-
-    if (thumbnailFile != null) {
-      request.files.add(await _buildMultipartFile('thumbnail', thumbnailFile));
+    if (sigResponse.statusCode != 200 || sigData['success'] != true) {
+      throw Exception(sigData['message'] ?? 'Failed to get upload authorization signature');
     }
 
-    final streamedResponse = await request.send().timeout(
-      const Duration(minutes: 3),
+    final timestamp = sigData['timestamp'].toString();
+    final signature = sigData['signature'].toString();
+    final apiKey = sigData['apiKey'].toString();
+    final cloudName = sigData['cloudName'].toString();
+
+    // Step 2: Upload audio file directly to Cloudinary API (bypasses Nginx proxy payload limits)
+    final cUri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/video/upload');
+    final cRequest = http.MultipartRequest('POST', cUri);
+    cRequest.fields['api_key'] = apiKey;
+    cRequest.fields['timestamp'] = timestamp;
+    cRequest.fields['signature'] = signature;
+    cRequest.fields['folder'] = 'tune_world/audios';
+
+    cRequest.files.add(await _buildMultipartFile('file', audioFile));
+
+    final cStreamed = await cRequest.send().timeout(
+      const Duration(minutes: 5),
       onTimeout: () {
-        throw Exception('Upload timed out. Please check your network connection and try again.');
+        throw Exception('Audio upload to Cloudinary timed out. Please check your internet connection.');
       },
     );
-    final response = await http.Response.fromStream(streamedResponse);
-    final data = _parseResponse(response);
+    final cResponse = await http.Response.fromStream(cStreamed);
+    final cData = jsonDecode(cResponse.body);
 
-    if (response.statusCode == 201 && data['success'] == true) {
-      return AudioModel.fromJson(data['audio']);
+    if (cResponse.statusCode != 200 || cData['secure_url'] == null) {
+      final errObj = cData['error'];
+      final errMsg = errObj != null && errObj['message'] != null ? errObj['message'] : 'Failed uploading to Cloudinary';
+      throw Exception('Cloudinary upload error: $errMsg');
+    }
+
+    final audioUrl = cData['secure_url'].toString();
+    String thumbnailImageUrl = '';
+
+    // Step 3: If a thumbnail file is selected, upload thumbnail directly to Cloudinary
+    if (thumbnailFile != null) {
+      try {
+        final tSigUri = Uri.parse('$baseUrl/audio/cloudinary-signature').replace(
+          queryParameters: {'folder': 'tune_world/thumbnails'},
+        );
+        final tSigResponse = await http.get(tSigUri, headers: _headers(token));
+        final tSigData = _parseResponse(tSigResponse);
+
+        if (tSigResponse.statusCode == 200 && tSigData['success'] == true) {
+          final tTimestamp = tSigData['timestamp'].toString();
+          final tSignature = tSigData['signature'].toString();
+
+          final tUri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
+          final tRequest = http.MultipartRequest('POST', tUri);
+          tRequest.fields['api_key'] = apiKey;
+          tRequest.fields['timestamp'] = tTimestamp;
+          tRequest.fields['signature'] = tSignature;
+          tRequest.fields['folder'] = 'tune_world/thumbnails';
+
+          tRequest.files.add(await _buildMultipartFile('file', thumbnailFile));
+
+          final tStreamed = await tRequest.send().timeout(const Duration(minutes: 2));
+          final tResponse = await http.Response.fromStream(tStreamed);
+          final tData = jsonDecode(tResponse.body);
+          if (tResponse.statusCode == 200 && tData['secure_url'] != null) {
+            thumbnailImageUrl = tData['secure_url'].toString();
+          }
+        }
+      } catch (e) {
+        print('Thumbnail upload warning: $e');
+      }
+    }
+
+    // Step 4: Save metadata to MongoDB via small JSON payload (1KB)
+    final metaResponse = await http.post(
+      Uri.parse('$baseUrl/audio/save-metadata'),
+      headers: _headers(token),
+      body: jsonEncode({
+        'name': name,
+        'audioUrl': audioUrl,
+        'thumbnailImageUrl': thumbnailImageUrl,
+        'visibility': visibility,
+      }),
+    );
+
+    final metaData = _parseResponse(metaResponse);
+    if (metaResponse.statusCode == 201 && metaData['success'] == true) {
+      return AudioModel.fromJson(metaData['audio']);
     } else {
-      throw Exception(data['message'] ?? 'Failed to upload audio');
+      throw Exception(metaData['message'] ?? 'Failed to save audio metadata');
     }
   }
 
