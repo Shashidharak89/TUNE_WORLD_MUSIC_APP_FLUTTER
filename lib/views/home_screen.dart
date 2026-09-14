@@ -943,55 +943,23 @@ class _HomeScreenState extends State<HomeScreen> {
           padding: const EdgeInsets.all(24),
           child: Column(
             children: [
+              const SizedBox(height: 32),
               const CircleAvatar(
-                radius: 48,
+                radius: 54,
                 backgroundColor: AppTheme.purpleAccent,
-                child: Icon(Icons.person, size: 50, color: Colors.white),
+                child: Icon(Icons.person, size: 60, color: Colors.white),
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 20),
               Text(
                 auth.isLoggedIn ? auth.user!.name : 'Guest User',
-                style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
+                style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
               ),
-              const SizedBox(height: 4),
+              const SizedBox(height: 6),
               Text(
                 auth.isLoggedIn ? auth.user!.email : 'Browsing in Guest Mode',
-                style: const TextStyle(color: Colors.grey, fontSize: 14),
+                style: const TextStyle(color: Colors.grey, fontSize: 15),
               ),
-              const SizedBox(height: 24),
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardBg,
-                  borderRadius: BorderRadius.circular(16),
-                ),
-                child: Column(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.verified_user, color: AppTheme.primaryAccent),
-                      title: const Text('JWT Auto-Verification', style: TextStyle(color: Colors.white)),
-                      subtitle: Text(
-                        auth.isVerifying
-                            ? 'Verifying JWT token...'
-                            : auth.isLoggedIn
-                                ? 'Token verified active'
-                                : 'No token found / Guest mode',
-                        style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      ),
-                    ),
-                    const Divider(color: Colors.white12),
-                    ListTile(
-                      leading: const Icon(Icons.dns, color: AppTheme.primaryAccent),
-                      title: const Text('Backend API Base URL', style: TextStyle(color: Colors.white)),
-                      subtitle: Text(
-                        ApiService.baseUrl,
-                        style: const TextStyle(color: Colors.grey, fontSize: 12),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 48),
               if (!auth.isLoggedIn)
                 ElevatedButton.icon(
                   onPressed: () {
@@ -1011,7 +979,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   icon: const Icon(Icons.logout, color: Colors.white),
                   label: const Text('Logout Account', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.redAccent.withOpacity(0.8),
+                    backgroundColor: Colors.redAccent.withValues(alpha: 0.8),
                     minimumSize: const Size(double.infinity, 50),
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
@@ -1022,6 +990,7 @@ class _HomeScreenState extends State<HomeScreen> {
       },
     );
   }
+
 
   @override
   Widget build(BuildContext context) {
