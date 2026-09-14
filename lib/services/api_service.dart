@@ -219,8 +219,8 @@ class ApiService {
       throw Exception('Audio file is empty or cannot be read.');
     }
 
-    // 1MB chunk size guaranteed to pass through Nginx & backend body size limits
-    const chunkSize = 1 * 1024 * 1024;
+    // Safe 512KB chunk size guarantees request payload (including multipart metadata headers) remains ~524KB, well below Nginx 1MB body limits
+    const chunkSize = 512 * 1024;
     final totalChunks = (totalBytes / chunkSize).ceil();
     final uploadId = 'upload_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
 
@@ -316,6 +316,11 @@ class ApiService {
         'visibility': visibility,
         'thumbnailImageUrl': thumbnailImageUrl,
       }),
+    ).timeout(
+      const Duration(minutes: 5),
+      onTimeout: () {
+        throw Exception('Completing chunked upload timed out. Please try again.');
+      },
     );
 
     final completeData = _parseResponse(completeResponse);
