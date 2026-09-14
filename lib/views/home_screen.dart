@@ -24,6 +24,7 @@ class UploadQueueItem {
   PlatformFile? thumbnailFile;
   bool isUploading;
   double progress;
+  int progressPercentage;
   String? error;
 
   UploadQueueItem({
@@ -33,6 +34,7 @@ class UploadQueueItem {
     this.thumbnailFile,
     this.isUploading = false,
     this.progress = 0.0,
+    this.progressPercentage = 0,
     this.error,
   }) : titleController = TextEditingController(text: defaultTitle);
 
@@ -298,8 +300,10 @@ class _HomeScreenState extends State<HomeScreen> {
 
       setState(() {
         item.isUploading = true;
+        item.progress = 0.0;
+        item.progressPercentage = 0;
         item.error = null;
-        _batchStatusMessage = 'Uploading (${_uploadQueue.length} remaining): $title';
+        _batchStatusMessage = 'Uploading (${_uploadQueue.length} remaining): $title (0%)';
       });
 
       final success = await audioProv.uploadAudio(
@@ -308,6 +312,19 @@ class _HomeScreenState extends State<HomeScreen> {
         visibility: item.visibility,
         audioFile: item.audioFile,
         thumbnailFile: item.thumbnailFile,
+        onProgress: (bytesSent, totalBytes) {
+          if (totalBytes > 0) {
+            final double p = (bytesSent / totalBytes).clamp(0.0, 1.0);
+            final int pct = (p * 100).toInt();
+            if (mounted) {
+              setState(() {
+                item.progress = p;
+                item.progressPercentage = pct;
+                _batchStatusMessage = 'Uploading (${_uploadQueue.length} remaining): $title ($pct%)';
+              });
+            }
+          }
+        },
       );
 
       if (success) {
@@ -1179,8 +1196,26 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
 
                             if (item.isUploading) ...[
-                              const SizedBox(height: 10),
-                              const LinearProgressIndicator(color: AppTheme.primaryAccent),
+                              const SizedBox(height: 12),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    '${item.progressPercentage}% uploaded',
+                                    style: const TextStyle(
+                                      color: AppTheme.primaryAccent,
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 6),
+                              LinearProgressIndicator(
+                                value: item.progress > 0 ? item.progress : null,
+                                color: AppTheme.primaryAccent,
+                                backgroundColor: Colors.white12,
+                              ),
                             ],
 
                             if (item.error != null) ...[

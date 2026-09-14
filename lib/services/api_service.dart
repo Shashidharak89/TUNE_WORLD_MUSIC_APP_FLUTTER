@@ -1,10 +1,41 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:file_picker/file_picker.dart';
 import '../models/user_model.dart';
 import '../models/audio_model.dart';
 import '../models/playlist_model.dart';
+
+class MultipartRequestWithProgress extends http.MultipartRequest {
+  final void Function(int bytesSent, int totalBytes)? onProgress;
+
+  MultipartRequestWithProgress(
+    String method,
+    Uri url, {
+    this.onProgress,
+  }) : super(method, url);
+
+  @override
+  http.ByteStream finalize() {
+    final byteStream = super.finalize();
+    if (onProgress == null) return byteStream;
+
+    final totalBytes = contentLength;
+    int bytesSent = 0;
+
+    final transformer = StreamTransformer<List<int>, List<int>>.fromHandlers(
+      handleData: (data, sink) {
+        bytesSent += data.length;
+        onProgress!(bytesSent, totalBytes);
+        sink.add(data);
+      },
+    );
+
+    return http.ByteStream(byteStream.transform(transformer));
+  }
+}
 
 class ApiService {
   // Default base URL for TuneWorld backend API
@@ -152,102 +183,127 @@ class ApiService {
     required String visibility,
     required PlatformFile audioFile,
     PlatformFile? thumbnailFile,
+    void Function(int bytesSent, int totalBytes)? onProgress,
   }) async {
-    // Step 1: Request signed upload credentials from backend API
-    final sigUri = Uri.parse('$baseUrl/audio/cloudinary-signature').replace(
-      queryParameters: {'folder': 'tune_world/audios'},
+    return await uploadAudioChunked(
+      token: token,
+      name: name,
+      visibility: visibility,
+      audioFile: audioFile,
+      thumbnailFile: thumbnailFile,
+      onProgress: onProgress,
     );
-    final sigResponse = await http.get(sigUri, headers: _headers(token));
-    final sigData = _parseResponse(sigResponse);
+  }
 
-    if (sigResponse.statusCode != 200 || sigData['success'] != true) {
-      throw Exception(sigData['message'] ?? 'Failed to get upload authorization signature');
+  // Chunk-by-chunk file upload implementation (~5MB per chunk)
+  static Future<AudioModel> uploadAudioChunked({
+    required String token,
+    required String name,
+    required String visibility,
+    required PlatformFile audioFile,
+    PlatformFile? thumbnailFile,
+    void Function(int bytesSent, int totalBytes)? onProgress,
+  }) async {
+    final audioBytes = await audioFile.readAsBytes();
+    final totalBytes = audioBytes.length;
+
+    // Fixed chunk size: 5MB (5 * 1024 * 1024 bytes)
+    const chunkSize = 5 * 1024 * 1024;
+    final totalChunks = (totalBytes / chunkSize).ceil();
+    final uploadId = 'upload_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
+
+    // Upload chunks sequentially chunk-by-chunk
+    for (int i = 0; i < totalChunks; i++) {
+      final start = i * chunkSize;
+      final end = (start + chunkSize < totalBytes) ? start + chunkSize : totalBytes;
+      final chunkBytes = audioBytes.sublist(start, end);
+
+      final uri = Uri.parse('$baseUrl/audio/upload-chunk');
+      final request = http.MultipartRequest('POST', uri);
+      request.headers.addAll(_headers(token));
+      request.fields['uploadId'] = uploadId;
+      request.fields['chunkIndex'] = i.toString();
+      request.fields['totalChunks'] = totalChunks.toString();
+
+      request.files.add(http.MultipartFile.fromBytes(
+        'chunk',
+        chunkBytes,
+        filename: 'chunk_$i.tmp',
+      ));
+
+      final streamed = await request.send().timeout(
+        const Duration(minutes: 3),
+        onTimeout: () {
+          throw Exception('Chunk ${i + 1}/$totalChunks upload timed out. Please check network connection.');
+        },
+      );
+
+      final response = await http.Response.fromStream(streamed);
+      final data = _parseResponse(response);
+
+      if (response.statusCode != 200 || data['success'] != true) {
+        throw Exception(data['message'] ?? 'Failed to upload chunk ${i + 1}');
+      }
+
+      // Report chunked upload progress after each chunk completes
+      if (onProgress != null) {
+        onProgress(end, totalBytes);
+      }
     }
 
-    final timestamp = sigData['timestamp'].toString();
-    final signature = sigData['signature'].toString();
-    final apiKey = sigData['apiKey'].toString();
-    final cloudName = sigData['cloudName'].toString();
-
-    // Step 2: Upload audio file directly to Cloudinary API (bypasses Nginx proxy payload limits)
-    final cUri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/video/upload');
-    final cRequest = http.MultipartRequest('POST', cUri);
-    cRequest.fields['api_key'] = apiKey;
-    cRequest.fields['timestamp'] = timestamp;
-    cRequest.fields['signature'] = signature;
-    cRequest.fields['folder'] = 'tune_world/audios';
-
-    cRequest.files.add(await _buildMultipartFile('file', audioFile));
-
-    final cStreamed = await cRequest.send().timeout(
-      const Duration(minutes: 5),
-      onTimeout: () {
-        throw Exception('Audio upload to Cloudinary timed out. Please check your internet connection.');
-      },
-    );
-    final cResponse = await http.Response.fromStream(cStreamed);
-    final cData = jsonDecode(cResponse.body);
-
-    if (cResponse.statusCode != 200 || cData['secure_url'] == null) {
-      final errObj = cData['error'];
-      final errMsg = errObj != null && errObj['message'] != null ? errObj['message'] : 'Failed uploading to Cloudinary';
-      throw Exception('Cloudinary upload error: $errMsg');
-    }
-
-    final audioUrl = cData['secure_url'].toString();
+    // If thumbnail file is selected, upload thumbnail directly
     String thumbnailImageUrl = '';
-
-    // Step 3: If a thumbnail file is selected, upload thumbnail directly to Cloudinary
     if (thumbnailFile != null) {
       try {
-        final tSigUri = Uri.parse('$baseUrl/audio/cloudinary-signature').replace(
+        final sigUri = Uri.parse('$baseUrl/audio/cloudinary-signature').replace(
           queryParameters: {'folder': 'tune_world/thumbnails'},
         );
-        final tSigResponse = await http.get(tSigUri, headers: _headers(token));
-        final tSigData = _parseResponse(tSigResponse);
+        final sigResponse = await http.get(sigUri, headers: _headers(token));
+        final sigData = _parseResponse(sigResponse);
 
-        if (tSigResponse.statusCode == 200 && tSigData['success'] == true) {
-          final tTimestamp = tSigData['timestamp'].toString();
-          final tSignature = tSigData['signature'].toString();
+        if (sigResponse.statusCode == 200 && sigData['success'] == true) {
+          final timestamp = sigData['timestamp'].toString();
+          final signature = sigData['signature'].toString();
+          final apiKey = sigData['apiKey'].toString();
+          final cloudName = sigData['cloudName'].toString();
 
           final tUri = Uri.parse('https://api.cloudinary.com/v1_1/$cloudName/image/upload');
           final tRequest = http.MultipartRequest('POST', tUri);
           tRequest.fields['api_key'] = apiKey;
-          tRequest.fields['timestamp'] = tTimestamp;
-          tRequest.fields['signature'] = tSignature;
+          tRequest.fields['timestamp'] = timestamp;
+          tRequest.fields['signature'] = signature;
           tRequest.fields['folder'] = 'tune_world/thumbnails';
 
           tRequest.files.add(await _buildMultipartFile('file', thumbnailFile));
-
-          final tStreamed = await tRequest.send().timeout(const Duration(minutes: 2));
+          final tStreamed = await tRequest.send();
           final tResponse = await http.Response.fromStream(tStreamed);
           final tData = jsonDecode(tResponse.body);
           if (tResponse.statusCode == 200 && tData['secure_url'] != null) {
             thumbnailImageUrl = tData['secure_url'].toString();
           }
         }
-      } catch (e) {
-        print('Thumbnail upload warning: $e');
-      }
+      } catch (_) {}
     }
 
-    // Step 4: Save metadata to MongoDB via small JSON payload (1KB)
-    final metaResponse = await http.post(
-      Uri.parse('$baseUrl/audio/save-metadata'),
+    // Call complete-chunked-upload on backend to combine chunks & save metadata
+    final completeUri = Uri.parse('$baseUrl/audio/complete-chunked-upload');
+    final completeResponse = await http.post(
+      completeUri,
       headers: _headers(token),
       body: jsonEncode({
+        'uploadId': uploadId,
+        'totalChunks': totalChunks,
         'name': name,
-        'audioUrl': audioUrl,
-        'thumbnailImageUrl': thumbnailImageUrl,
         'visibility': visibility,
+        'thumbnailImageUrl': thumbnailImageUrl,
       }),
     );
 
-    final metaData = _parseResponse(metaResponse);
-    if (metaResponse.statusCode == 201 && metaData['success'] == true) {
-      return AudioModel.fromJson(metaData['audio']);
+    final completeData = _parseResponse(completeResponse);
+    if (completeResponse.statusCode == 201 && completeData['success'] == true) {
+      return AudioModel.fromJson(completeData['audio']);
     } else {
-      throw Exception(metaData['message'] ?? 'Failed to save audio metadata');
+      throw Exception(completeData['message'] ?? 'Failed to finalize chunked audio upload');
     }
   }
 

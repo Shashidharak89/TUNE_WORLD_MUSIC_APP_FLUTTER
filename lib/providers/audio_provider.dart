@@ -201,6 +201,7 @@ class AudioProvider extends ChangeNotifier {
     required String visibility,
     required PlatformFile audioFile,
     PlatformFile? thumbnailFile,
+    void Function(int bytesSent, int totalBytes)? onProgress,
   }) async {
     _isUploading = true;
     _errorMessage = null;
@@ -213,6 +214,7 @@ class AudioProvider extends ChangeNotifier {
         visibility: visibility,
         audioFile: audioFile,
         thumbnailFile: thumbnailFile,
+        onProgress: onProgress,
       );
 
       _myAudios.insert(0, newAudio);
