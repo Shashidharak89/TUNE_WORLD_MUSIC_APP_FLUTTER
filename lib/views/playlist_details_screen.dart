@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import 'package:file_picker/file_picker.dart';
+import '../models/playlist_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../services/audio_handler.dart';
@@ -31,6 +33,12 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
     });
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
   void _loadDetails({int page = 1}) {
     final auth = Provider.of<AuthProvider>(context, listen: false);
     final playlistProv = Provider.of<PlaylistProvider>(context, listen: false);
@@ -38,7 +46,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
       token: auth.token,
       playlistId: widget.playlistId,
       page: page,
-      pageSize: 50, // Initial page size set to 50 everywhere
+      pageSize: 50,
       search: _searchController.text.trim(),
     );
   }
@@ -72,8 +80,187 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
     );
   }
 
+  void _showEditPlaylistDialog(BuildContext context, PlaylistModel playlist) {
+    final nameController = TextEditingController(text: playlist.name);
+    String visibility = playlist.visibility;
+    PlatformFile? selectedCover;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setState) {
+          return AlertDialog(
+            backgroundColor: AppTheme.cardBg,
+            title: const Text('Edit Playlist', style: TextStyle(color: Colors.white)),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  TextField(
+                    controller: nameController,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Playlist Name',
+                      labelStyle: const TextStyle(color: Colors.grey),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: Colors.white24),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: AppTheme.primaryAccent),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  DropdownButtonFormField<String>(
+                    initialValue: visibility,
+                    dropdownColor: AppTheme.cardBg,
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      labelText: 'Visibility',
+                      labelStyle: const TextStyle(color: Colors.grey),
+                      enabledBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: Colors.white24),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      focusedBorder: OutlineInputBorder(
+                        borderSide: const BorderSide(color: AppTheme.primaryAccent),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    items: const [
+                      DropdownMenuItem(value: 'public', child: Text('Public')),
+                      DropdownMenuItem(value: 'private', child: Text('Private')),
+                      DropdownMenuItem(value: 'unlisted', child: Text('Unlisted')),
+                    ],
+                    onChanged: (val) {
+                      if (val != null) setState(() => visibility = val);
+                    },
+                  ),
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final res = await FilePicker.pickFiles(
+                        type: FileType.image,
+                        withData: true,
+                      );
+                      if (res.isNotEmpty) {
+                        setState(() => selectedCover = res.first);
+                      }
+                    },
+                    icon: const Icon(Icons.image, color: AppTheme.primaryAccent),
+                    label: Text(
+                      selectedCover != null ? selectedCover!.name : 'Change Cover Image',
+                      style: const TextStyle(color: Colors.white70),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    style: OutlinedButton.styleFrom(
+                      side: const BorderSide(color: Colors.white24),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+              ),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final auth = Provider.of<AuthProvider>(context, listen: false);
+                  final pProv = Provider.of<PlaylistProvider>(context, listen: false);
+
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Updating playlist...')),
+                  );
+
+                  final success = await pProv.updatePlaylist(
+                    token: auth.token!,
+                    playlistId: playlist.id,
+                    name: nameController.text.trim(),
+                    visibility: visibility,
+                    imageFile: selectedCover,
+                  );
+
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          success
+                              ? 'Playlist updated successfully!'
+                              : (pProv.errorMessage ?? 'Failed to update playlist'),
+                        ),
+                      ),
+                    );
+                  }
+                },
+                child: const Text('Save Changes', style: TextStyle(color: Colors.black)),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+
+  void _confirmDeletePlaylist(BuildContext context, PlaylistModel playlist) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardBg,
+        title: const Text('Delete Playlist', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to permanently delete playlist "${playlist.name}"?',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final auth = Provider.of<AuthProvider>(context, listen: false);
+              final pProv = Provider.of<PlaylistProvider>(context, listen: false);
+
+              final success = await pProv.deletePlaylist(
+                token: auth.token!,
+                playlistId: playlist.id,
+              );
+
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      success
+                          ? 'Playlist deleted successfully'
+                          : (pProv.errorMessage ?? 'Failed to delete playlist'),
+                    ),
+                  ),
+                );
+                if (success) {
+                  Navigator.pop(context);
+                }
+              }
+            },
+            child: const Text('Delete', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final auth = Provider.of<AuthProvider>(context);
+
     return Scaffold(
       backgroundColor: AppTheme.background,
       appBar: AppBar(
@@ -103,9 +290,14 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
           final playlist = pProv.currentPlaylist;
           if (playlist == null) return const SizedBox.shrink();
 
+          final isOwner = auth.isLoggedIn &&
+              (auth.user?.id == playlist.userId ||
+                  auth.user?.id == playlist.id ||
+                  playlist.userId.isEmpty);
+
           return Column(
             children: [
-              // Header Card with Play Playlist Button
+              // Header Card with Actions & Play Button
               Container(
                 padding: const EdgeInsets.all(16),
                 margin: const EdgeInsets.all(16),
@@ -113,7 +305,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                   color: AppTheme.cardBg,
                   borderRadius: BorderRadius.circular(20),
                   border: Border.all(
-                    color: AppTheme.primaryAccent.withOpacity(0.2),
+                    color: AppTheme.primaryAccent.withValues(alpha: 0.2),
                   ),
                 ),
                 child: Column(
@@ -125,7 +317,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                           child: Container(
                             width: 80,
                             height: 80,
-                            color: AppTheme.purpleAccent.withOpacity(0.3),
+                            color: AppTheme.purpleAccent.withValues(alpha: 0.3),
                             child: playlist.imageUrl.isNotEmpty
                                 ? Image.network(
                                     playlist.imageUrl,
@@ -165,7 +357,7 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                               Container(
                                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
                                 decoration: BoxDecoration(
-                                  color: AppTheme.primaryAccent.withOpacity(0.15),
+                                  color: AppTheme.primaryAccent.withValues(alpha: 0.15),
                                   borderRadius: BorderRadius.circular(6),
                                 ),
                                 child: Text(
@@ -180,6 +372,20 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                             ],
                           ),
                         ),
+                        if (isOwner)
+                          Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              IconButton(
+                                icon: const Icon(Icons.edit_outlined, color: AppTheme.primaryAccent),
+                                onPressed: () => _showEditPlaylistDialog(context, playlist),
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                onPressed: () => _confirmDeletePlaylist(context, playlist),
+                              ),
+                            ],
+                          ),
                       ],
                     ),
                     const SizedBox(height: 12),
@@ -293,6 +499,8 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                             audioHandler: widget.audioHandler,
                             playlistQueue: pProv.currentPlaylistAudios,
                             index: index,
+                            playlistId: widget.playlistId,
+                            isPlaylistOwner: isOwner,
                           );
                         },
                       ),

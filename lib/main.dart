@@ -4,6 +4,7 @@ import 'services/audio_handler.dart';
 import 'providers/auth_provider.dart';
 import 'providers/audio_provider.dart';
 import 'providers/playlist_provider.dart';
+import 'providers/download_provider.dart';
 import 'theme/app_theme.dart';
 import 'views/home_screen.dart';
 
@@ -28,6 +29,7 @@ class TuneWorldApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => AuthProvider()),
         ChangeNotifierProvider(create: (_) => AudioProvider()),
         ChangeNotifierProvider(create: (_) => PlaylistProvider()),
+        ChangeNotifierProvider(create: (_) => DownloadProvider()),
       ],
       child: MaterialApp(
         title: 'Tune World',
@@ -38,3 +40,4 @@ class TuneWorldApp extends StatelessWidget {
     );
   }
 }
+

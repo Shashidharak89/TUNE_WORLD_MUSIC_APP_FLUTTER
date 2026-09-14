@@ -366,4 +366,111 @@ class ApiService {
       throw Exception(data['message'] ?? 'Failed to fetch playlist details');
     }
   }
+
+  // Update Audio
+  static Future<AudioModel> updateAudio({
+    required String token,
+    required String audioId,
+    String? name,
+    String? visibility,
+    String? thumbnailImageUrl,
+  }) async {
+    final response = await http.put(
+      Uri.parse('$baseUrl/audio/$audioId'),
+      headers: _headers(token),
+      body: jsonEncode({
+        if (name != null) 'name': name,
+        if (visibility != null) 'visibility': visibility,
+        if (thumbnailImageUrl != null) 'thumbnailImageUrl': thumbnailImageUrl,
+      }),
+    );
+
+    final data = _parseResponse(response);
+    if (response.statusCode == 200 && data['success'] == true) {
+      return AudioModel.fromJson(data['audio']);
+    } else {
+      throw Exception(data['message'] ?? 'Failed to update audio');
+    }
+  }
+
+  // Delete Audio
+  static Future<void> deleteAudio({
+    required String token,
+    required String audioId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/audio/$audioId'),
+      headers: _headers(token),
+    );
+
+    final data = _parseResponse(response);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(data['message'] ?? 'Failed to delete audio');
+    }
+  }
+
+  // Update Playlist
+  static Future<PlaylistModel> updatePlaylist({
+    required String token,
+    required String playlistId,
+    String? name,
+    String? visibility,
+    PlatformFile? imageFile,
+    String? imageUrl,
+  }) async {
+    final uri = Uri.parse('$baseUrl/playlists/$playlistId');
+    final request = http.MultipartRequest('PUT', uri);
+
+    request.headers['Authorization'] = 'Bearer $token';
+    if (name != null) request.fields['name'] = name;
+    if (visibility != null) request.fields['visibility'] = visibility;
+    if (imageUrl != null) request.fields['imageUrl'] = imageUrl;
+
+    if (imageFile != null) {
+      request.files.add(await _buildMultipartFile('image', imageFile));
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    final data = _parseResponse(response);
+
+    if (response.statusCode == 200 && data['success'] == true) {
+      return PlaylistModel.fromJson(data['playlist']);
+    } else {
+      throw Exception(data['message'] ?? 'Failed to update playlist');
+    }
+  }
+
+  // Delete Playlist
+  static Future<void> deletePlaylist({
+    required String token,
+    required String playlistId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/playlists/$playlistId'),
+      headers: _headers(token),
+    );
+
+    final data = _parseResponse(response);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(data['message'] ?? 'Failed to delete playlist');
+    }
+  }
+
+  // Remove Audio from Playlist
+  static Future<void> removeAudioFromPlaylist({
+    required String token,
+    required String playlistId,
+    required String audioId,
+  }) async {
+    final response = await http.delete(
+      Uri.parse('$baseUrl/playlists/$playlistId/remove-audio/$audioId'),
+      headers: _headers(token),
+    );
+
+    final data = _parseResponse(response);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(data['message'] ?? 'Failed to remove audio from playlist');
+    }
+  }
 }

@@ -230,4 +230,71 @@ class AudioProvider extends ChangeNotifier {
       return false;
     }
   }
+
+  // Update Audio
+  Future<bool> updateAudio({
+    required String token,
+    required String audioId,
+    String? name,
+    String? visibility,
+    PlatformFile? thumbnailFile,
+  }) async {
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updated = await ApiService.updateAudio(
+        token: token,
+        audioId: audioId,
+        name: name,
+        visibility: visibility,
+        thumbnailFile: thumbnailFile,
+      );
+
+      final myIdx = _myAudios.indexWhere((a) => a.id == audioId);
+      if (myIdx != -1) {
+        _myAudios[myIdx] = updated;
+      }
+
+      final pubIdx = _publicAudios.indexWhere((a) => a.id == audioId);
+      if (updated.visibility == 'public') {
+        if (pubIdx != -1) {
+          _publicAudios[pubIdx] = updated;
+        } else {
+          _publicAudios.insert(0, updated);
+        }
+      } else {
+        if (pubIdx != -1) {
+          _publicAudios.removeAt(pubIdx);
+        }
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Delete Audio
+  Future<bool> deleteAudio({
+    required String token,
+    required String audioId,
+  }) async {
+    _errorMessage = null;
+    try {
+      await ApiService.deleteAudio(token: token, audioId: audioId);
+      _myAudios.removeWhere((a) => a.id == audioId);
+      _publicAudios.removeWhere((a) => a.id == audioId);
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
 }
+

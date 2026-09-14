@@ -344,4 +344,105 @@ class PlaylistProvider extends ChangeNotifier {
     notifyListeners();
     return false;
   }
+
+  // Update Playlist
+  Future<bool> updatePlaylist({
+    required String token,
+    required String playlistId,
+    String? name,
+    String? visibility,
+    PlatformFile? imageFile,
+  }) async {
+    _errorMessage = null;
+    notifyListeners();
+
+    try {
+      final updated = await ApiService.updatePlaylist(
+        token: token,
+        playlistId: playlistId,
+        name: name,
+        visibility: visibility,
+        imageFile: imageFile,
+      );
+
+      if (_currentPlaylist?.id == playlistId) {
+        _currentPlaylist = updated;
+      }
+
+      final myIdx = _myPlaylists.indexWhere((p) => p.id == playlistId);
+      if (myIdx != -1) {
+        _myPlaylists[myIdx] = updated;
+      }
+
+      final pubIdx = _publicPlaylists.indexWhere((p) => p.id == playlistId);
+      if (updated.visibility == 'public') {
+        if (pubIdx != -1) {
+          _publicPlaylists[pubIdx] = updated;
+        } else {
+          _publicPlaylists.insert(0, updated);
+        }
+      } else {
+        if (pubIdx != -1) {
+          _publicPlaylists.removeAt(pubIdx);
+        }
+      }
+
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Delete Playlist
+  Future<bool> deletePlaylist({
+    required String token,
+    required String playlistId,
+  }) async {
+    _errorMessage = null;
+    try {
+      await ApiService.deletePlaylist(token: token, playlistId: playlistId);
+      _myPlaylists.removeWhere((p) => p.id == playlistId);
+      _publicPlaylists.removeWhere((p) => p.id == playlistId);
+      if (_currentPlaylist?.id == playlistId) {
+        _currentPlaylist = null;
+        _currentPlaylistAudios = [];
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
+  // Remove Audio from Playlist
+  Future<bool> removeAudioFromPlaylist({
+    required String token,
+    required String playlistId,
+    required String audioId,
+  }) async {
+    _errorMessage = null;
+    try {
+      await ApiService.removeAudioFromPlaylist(
+        token: token,
+        playlistId: playlistId,
+        audioId: audioId,
+      );
+
+      if (_currentPlaylist?.id == playlistId) {
+        _currentPlaylistAudios.removeWhere((a) => a.id == audioId);
+      }
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
 }
+

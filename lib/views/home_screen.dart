@@ -13,6 +13,7 @@ import '../widgets/playlist_card_widget.dart';
 import '../widgets/mini_player_widget.dart';
 import 'auth_screen.dart';
 import 'playlist_details_screen.dart';
+import 'downloads_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final TuneWorldAudioHandler audioHandler;
@@ -1023,6 +1024,7 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _buildDiscoverTab(),
               _buildPlaylistsTab(),
+              DownloadsScreen(audioHandler: widget.audioHandler),
               _buildUploadTab(),
               _buildProfileTab(),
             ],
@@ -1057,6 +1059,7 @@ class _HomeScreenState extends State<HomeScreen> {
         items: const [
           BottomNavigationBarItem(icon: Icon(Icons.explore_rounded), label: 'Discover'),
           BottomNavigationBarItem(icon: Icon(Icons.queue_music_rounded), label: 'Playlists'),
+          BottomNavigationBarItem(icon: Icon(Icons.download_rounded), label: 'Downloads'),
           BottomNavigationBarItem(icon: Icon(Icons.cloud_upload_rounded), label: 'Upload'),
           BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
         ],
@@ -1064,3 +1067,4 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 }
+
