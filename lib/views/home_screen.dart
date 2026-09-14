@@ -1,5 +1,7 @@
+import 'dart:io';
 import 'dart:typed_data';
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
 import 'package:file_picker/file_picker.dart';
 import '../providers/auth_provider.dart';
@@ -217,9 +219,61 @@ class _HomeScreenState extends State<HomeScreen> {
                       label: Text(_selectedPlaylistCover != null ? 'Cover Selected' : 'Pick Cover Image'),
                       style: ElevatedButton.styleFrom(backgroundColor: AppTheme.cardBgLight),
                     ),
+                    if (_selectedPlaylistCover != null) ...[
+                      const SizedBox(height: 12),
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: 90,
+                          height: 90,
+                          decoration: BoxDecoration(
+                            border: Border.all(color: AppTheme.primaryAccent, width: 1.5),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Stack(
+                            children: [
+                              Positioned.fill(
+                                child: _selectedPlaylistCover!.path != null && File(_selectedPlaylistCover!.path!).existsSync()
+                                    ? Image.file(File(_selectedPlaylistCover!.path!), fit: BoxFit.cover)
+                                    : FutureBuilder<Uint8List>(
+                                        future: _selectedPlaylistCover!.readAsBytes(),
+                                        builder: (context, snapshot) {
+                                          if (snapshot.hasData && snapshot.data != null) {
+                                            return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                                          }
+                                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                                        },
+                                      ),
+                              ),
+
+                              Positioned(
+                                top: 2,
+                                right: 2,
+                                child: GestureDetector(
+                                  onTap: () {
+                                    setDialogState(() {
+                                      _selectedPlaylistCover = null;
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(2),
+                                    decoration: const BoxDecoration(
+                                      color: Colors.redAccent,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ],
                   ],
                 ),
               ),
+
               actions: [
                 TextButton(
                   onPressed: () => Navigator.pop(ctx),

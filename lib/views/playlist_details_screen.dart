@@ -1,5 +1,9 @@
+import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+
 import 'package:provider/provider.dart';
+
 import 'package:file_picker/file_picker.dart';
 import '../models/playlist_model.dart';
 import '../providers/auth_provider.dart';
@@ -161,9 +165,61 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                     ),
                   ),
+                  if (selectedCover != null) ...[
+                    const SizedBox(height: 12),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        width: 90,
+                        height: 90,
+                        decoration: BoxDecoration(
+                          border: Border.all(color: AppTheme.primaryAccent, width: 1.5),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Stack(
+                          children: [
+                            Positioned.fill(
+                              child: selectedCover!.path != null && File(selectedCover!.path!).existsSync()
+                                  ? Image.file(File(selectedCover!.path!), fit: BoxFit.cover)
+                                  : FutureBuilder<Uint8List>(
+                                      future: selectedCover!.readAsBytes(),
+                                      builder: (context, snapshot) {
+                                        if (snapshot.hasData && snapshot.data != null) {
+                                          return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                                        }
+                                        return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                                      },
+                                    ),
+                            ),
+
+                            Positioned(
+                              top: 2,
+                              right: 2,
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    selectedCover = null;
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.all(2),
+                                  decoration: const BoxDecoration(
+                                    color: Colors.redAccent,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(Icons.close, size: 14, color: Colors.white),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ),
+
             actions: [
               TextButton(
                 onPressed: () => Navigator.pop(ctx),

@@ -166,21 +166,44 @@ class PlayerScreen extends StatelessWidget {
                   },
                 ),
 
-                // Playback Control Buttons
+                // Playback Control Buttons (Shuffle & Order Modes)
                 StreamBuilder<PlaybackState>(
                   stream: audioHandler.playbackState,
                   builder: (context, stateSnap) {
                     final playing = stateSnap.data?.playing ?? false;
+                    final isShuffle = stateSnap.data?.shuffleMode == AudioServiceShuffleMode.all;
 
                     return Row(
                       mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                       children: [
+                        // Shuffle Mode Toggle
+                        IconButton(
+                          iconSize: 28,
+                          icon: Icon(
+                            Icons.shuffle_rounded,
+                            color: isShuffle ? AppTheme.primaryAccent : Colors.white38,
+                          ),
+                          onPressed: () {
+                            audioHandler.toggleShuffle();
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  !isShuffle
+                                      ? 'Random Shuffle Mode Enabled (Tracks played status)'
+                                      : 'Sequential Order Mode Enabled',
+                                ),
+                                duration: const Duration(seconds: 1),
+                              ),
+                            );
+                          },
+                        ),
+                        // Previous Track
                         IconButton(
                           iconSize: 40,
-                          icon: const Icon(Icons.skip_previous_rounded,
-                              color: Colors.white),
+                          icon: const Icon(Icons.skip_previous_rounded, color: Colors.white),
                           onPressed: () => audioHandler.skipToPrevious(),
                         ),
+                        // Play / Pause
                         Container(
                           decoration: const BoxDecoration(
                             shape: BoxShape.circle,
@@ -201,16 +224,28 @@ class PlayerScreen extends StatelessWidget {
                             },
                           ),
                         ),
+                        // Next Track
                         IconButton(
                           iconSize: 40,
-                          icon: const Icon(Icons.skip_next_rounded,
-                              color: Colors.white),
+                          icon: const Icon(Icons.skip_next_rounded, color: Colors.white),
                           onPressed: () => audioHandler.skipToNext(),
+                        ),
+                        // Order / Repeat Mode Indicator
+                        IconButton(
+                          iconSize: 28,
+                          icon: Icon(
+                            isShuffle ? Icons.shuffle_on_outlined : Icons.repeat_rounded,
+                            color: isShuffle ? AppTheme.primaryAccent : Colors.white70,
+                          ),
+                          onPressed: () {
+                            audioHandler.toggleShuffle();
+                          },
                         ),
                       ],
                     );
                   },
                 ),
+
               ],
             ),
           );

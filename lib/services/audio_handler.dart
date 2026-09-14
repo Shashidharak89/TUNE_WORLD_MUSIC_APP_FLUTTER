@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
 import '../models/audio_model.dart';
@@ -21,12 +22,18 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   List<AudioModel> _playlist = [];
   int _currentIndex = -1;
 
+  // Shuffle & Order Mode Management
+  bool _isShuffle = false;
+  final Set<int> _playedIndices = {};
+  final List<int> _shuffleHistory = [];
+
   // Callback to auto-fetch next page when end of current queue is reached
   Future<bool> Function()? onFetchMore;
 
   AudioPlayer get player => _player;
   List<AudioModel> get playlist => _playlist;
   int get currentIndex => _currentIndex;
+  bool get isShuffle => _isShuffle;
 
   TuneWorldAudioHandler() {
     _initStreams();
@@ -53,6 +60,29 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     });
   }
 
+  void toggleShuffle() {
+    _isShuffle = !_isShuffle;
+    _playedIndices.clear();
+    _shuffleHistory.clear();
+    if (_isShuffle && _currentIndex >= 0 && _currentIndex < _playlist.length) {
+      _playedIndices.add(_currentIndex);
+      _shuffleHistory.add(_currentIndex);
+    }
+    _broadcastState();
+  }
+
+  @override
+  Future<void> setShuffleMode(AudioServiceShuffleMode shuffleMode) async {
+    _isShuffle = (shuffleMode == AudioServiceShuffleMode.all || shuffleMode == AudioServiceShuffleMode.group);
+    _playedIndices.clear();
+    _shuffleHistory.clear();
+    if (_isShuffle && _currentIndex >= 0 && _currentIndex < _playlist.length) {
+      _playedIndices.add(_currentIndex);
+      _shuffleHistory.add(_currentIndex);
+    }
+    _broadcastState();
+  }
+
   void _broadcastState() {
     final playing = _player.playing;
     final state = _player.processingState;
@@ -73,8 +103,10 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
         MediaAction.play,
         MediaAction.pause,
         MediaAction.stop,
+        MediaAction.setShuffleMode,
       },
       androidCompactActionIndices: const [0, 1, 2],
+      shuffleMode: _isShuffle ? AudioServiceShuffleMode.all : AudioServiceShuffleMode.none,
       processingState: const {
         ProcessingState.idle: AudioProcessingState.idle,
         ProcessingState.loading: AudioProcessingState.loading,
@@ -129,6 +161,13 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     } else {
       _playlist = [audio];
       _currentIndex = 0;
+    }
+
+    if (_isShuffle) {
+      _playedIndices.add(_currentIndex);
+      if (_shuffleHistory.isEmpty || _shuffleHistory.last != _currentIndex) {
+        _shuffleHistory.add(_currentIndex);
+      }
     }
 
     _updateQueueItems();
@@ -201,21 +240,80 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   Future<void> skipToNext() async {
     if (_playlist.isEmpty) return;
 
-    if (_currentIndex < _playlist.length - 1) {
-      _currentIndex++;
-      await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
-    } else {
-      if (onFetchMore != null) {
-        final hasMore = await onFetchMore!();
-        if (hasMore && _currentIndex < _playlist.length - 1) {
-          _currentIndex++;
-          await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
-          return;
+    if (_isShuffle) {
+      _playedIndices.add(_currentIndex);
+
+      // Find all unplayed indices in current playlist
+      List<int> unplayed = [];
+      for (int i = 0; i < _playlist.length; i++) {
+        if (!_playedIndices.contains(i)) {
+          unplayed.add(i);
         }
       }
-      if (_playlist.isNotEmpty) {
-        _currentIndex = 0;
-        await playTrack(_playlist[0], queueList: _playlist, index: 0);
+
+      if (unplayed.isNotEmpty) {
+        unplayed.shuffle(Random());
+        final nextIdx = unplayed.first;
+        _currentIndex = nextIdx;
+        _playedIndices.add(_currentIndex);
+        _shuffleHistory.add(_currentIndex);
+        await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+        return;
+      } else {
+        // All songs in queue played; check if more tracks can be fetched automatically
+        if (onFetchMore != null) {
+          final hasMore = await onFetchMore!();
+          if (hasMore) {
+            List<int> newUnplayed = [];
+            for (int i = 0; i < _playlist.length; i++) {
+              if (!_playedIndices.contains(i)) {
+                newUnplayed.add(i);
+              }
+            }
+            if (newUnplayed.isNotEmpty) {
+              newUnplayed.shuffle(Random());
+              final nextIdx = newUnplayed.first;
+              _currentIndex = nextIdx;
+              _playedIndices.add(_currentIndex);
+              _shuffleHistory.add(_currentIndex);
+              await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+              return;
+            }
+          }
+        }
+
+        // Reset played cycle and pick a random next song
+        _playedIndices.clear();
+        _shuffleHistory.clear();
+        List<int> allIndices = List.generate(_playlist.length, (i) => i);
+        if (allIndices.length > 1) {
+          allIndices.remove(_currentIndex);
+        }
+        allIndices.shuffle(Random());
+        _currentIndex = allIndices.first;
+        _playedIndices.add(_currentIndex);
+        _shuffleHistory.add(_currentIndex);
+        await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+        return;
+      }
+    } else {
+      // Order mode: sequential playback (0 -> 1 -> 2 ...)
+      if (_currentIndex < _playlist.length - 1) {
+        _currentIndex++;
+        await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+      } else {
+        if (onFetchMore != null) {
+          final hasMore = await onFetchMore!();
+          if (hasMore && _currentIndex < _playlist.length - 1) {
+            _currentIndex++;
+            await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+            return;
+          }
+        }
+        if (_playlist.isNotEmpty) {
+          _currentIndex = 0;
+          await playTrack(_playlist[0], queueList: _playlist, index: 0);
+        }
       }
     }
   }
@@ -223,12 +321,21 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   @override
   Future<void> skipToPrevious() async {
     if (_playlist.isEmpty) return;
-    if (_currentIndex > 0) {
-      _currentIndex--;
+
+    if (_isShuffle && _shuffleHistory.length > 1) {
+      _shuffleHistory.removeLast(); // current track
+      final prevIndex = _shuffleHistory.last;
+      _currentIndex = prevIndex;
       await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
-    } else if (_playlist.isNotEmpty) {
-      _currentIndex = _playlist.length - 1;
-      await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+    } else {
+      // Order mode
+      if (_currentIndex > 0) {
+        _currentIndex--;
+        await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+      } else if (_playlist.isNotEmpty) {
+        _currentIndex = _playlist.length - 1;
+        await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+      }
     }
   }
 }
