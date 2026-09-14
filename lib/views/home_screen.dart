@@ -17,6 +17,30 @@ import 'auth_screen.dart';
 import 'playlist_details_screen.dart';
 import 'downloads_screen.dart';
 
+class UploadQueueItem {
+  final PlatformFile audioFile;
+  final TextEditingController titleController;
+  String visibility;
+  PlatformFile? thumbnailFile;
+  bool isUploading;
+  double progress;
+  String? error;
+
+  UploadQueueItem({
+    required this.audioFile,
+    required String defaultTitle,
+    this.visibility = 'public',
+    this.thumbnailFile,
+    this.isUploading = false,
+    this.progress = 0.0,
+    this.error,
+  }) : titleController = TextEditingController(text: defaultTitle);
+
+  void dispose() {
+    titleController.dispose();
+  }
+}
+
 class HomeScreen extends StatefulWidget {
   final TuneWorldAudioHandler audioHandler;
 
@@ -33,10 +57,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // Controllers & Inputs
   final _searchController = TextEditingController();
-  final _uploadTitleController = TextEditingController();
   String _uploadVisibility = 'public';
-  PlatformFile? _selectedAudioFile;
-  PlatformFile? _selectedThumbnailFile;
+
+  // Multi-file batch upload queue state
+  final List<UploadQueueItem> _uploadQueue = [];
+  bool _isBatchUploading = false;
+  String? _batchStatusMessage;
 
   final _playlistNameController = TextEditingController();
   String _playlistVisibility = 'public';
@@ -197,39 +223,126 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _fetchInitialData() {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
     final audioProv = Provider.of<AudioProvider>(context, listen: false);
     final playlistProv = Provider.of<PlaylistProvider>(context, listen: false);
 
     audioProv.fetchPublicAudios(page: 1, pageSize: 50);
     playlistProv.fetchPublicPlaylists(page: 1, pageSize: 50);
+    if (auth.isLoggedIn && auth.token != null) {
+      audioProv.fetchMyAudios(token: auth.token!, page: 1, pageSize: 50);
+    }
   }
 
-  // File Picker Helpers
-  Future<void> _pickAudioFile() async {
-    final result = await FilePickerService.pickFiles(type: FileType.audio);
+  // File Picker Helpers (Multi-file audio selection support)
+  Future<void> _pickAudioFiles() async {
+    final result = await FilePickerService.pickFiles(type: FileType.audio, allowMultiple: true);
     if (result.isNotEmpty) {
-      final picked = result.first;
-      final filename = picked.name;
-
-      String autoTitle = filename;
-      if (autoTitle.contains('.')) {
-        autoTitle = autoTitle.substring(0, autoTitle.lastIndexOf('.'));
-      }
-      autoTitle = autoTitle.replaceAll('_', ' ').replaceAll('-', ' ').trim();
-
       setState(() {
-        _selectedAudioFile = picked;
-        _uploadTitleController.text = autoTitle;
+        for (final picked in result) {
+          String autoTitle = picked.name;
+          if (autoTitle.contains('.')) {
+            autoTitle = autoTitle.substring(0, autoTitle.lastIndexOf('.'));
+          }
+          autoTitle = autoTitle.replaceAll('_', ' ').replaceAll('-', ' ').trim();
+
+          _uploadQueue.add(UploadQueueItem(
+            audioFile: picked,
+            defaultTitle: autoTitle,
+            visibility: _uploadVisibility,
+          ));
+        }
       });
     }
   }
 
-  Future<void> _pickThumbnailFile() async {
+  Future<void> _pickQueueItemCover(UploadQueueItem item) async {
     final result = await FilePickerService.pickFiles(type: FileType.image);
     if (result.isNotEmpty) {
       setState(() {
-        _selectedThumbnailFile = result.first;
+        item.thumbnailFile = result.first;
       });
+    }
+  }
+
+  Future<void> _startBatchUpload() async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final audioProv = Provider.of<AudioProvider>(context, listen: false);
+
+    if (!auth.isLoggedIn) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+      return;
+    }
+
+    if (_uploadQueue.isEmpty) return;
+
+    setState(() {
+      _isBatchUploading = true;
+    });
+
+    while (_uploadQueue.isNotEmpty) {
+      final item = _uploadQueue.first;
+      final title = item.titleController.text.trim();
+      if (title.isEmpty) {
+        setState(() {
+          item.error = 'Title cannot be empty';
+          _isBatchUploading = false;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Please enter a title for all queued tracks.')),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        item.isUploading = true;
+        item.error = null;
+        _batchStatusMessage = 'Uploading (${_uploadQueue.length} remaining): $title';
+      });
+
+      final success = await audioProv.uploadAudio(
+        token: auth.token!,
+        name: title,
+        visibility: item.visibility,
+        audioFile: item.audioFile,
+        thumbnailFile: item.thumbnailFile,
+      );
+
+      if (success) {
+        item.dispose();
+        setState(() {
+          _uploadQueue.removeAt(0);
+        });
+        // Refresh user uploaded records immediately so it stays up-to-date!
+        audioProv.fetchMyAudios(token: auth.token!, page: 1, pageSize: 50);
+        audioProv.fetchPublicAudios(page: 1, pageSize: 50);
+      } else {
+        setState(() {
+          item.isUploading = false;
+          item.error = audioProv.errorMessage ?? 'Upload failed';
+          _isBatchUploading = false;
+          _batchStatusMessage = null;
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Upload failed for "$title": ${audioProv.errorMessage}')),
+          );
+        }
+        break;
+      }
+    }
+
+    setState(() {
+      _isBatchUploading = false;
+      _batchStatusMessage = null;
+    });
+
+    if (_uploadQueue.isEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('All queued uploads completed successfully!')),
+      );
     }
   }
 
@@ -239,65 +352,6 @@ class _HomeScreenState extends State<HomeScreen> {
       setState(() {
         _selectedPlaylistCover = result.first;
       });
-    }
-  }
-
-
-  void _handleAudioUpload() async {
-    final auth = Provider.of<AuthProvider>(context, listen: false);
-    final audioProv = Provider.of<AudioProvider>(context, listen: false);
-
-    if (!auth.isLoggedIn) {
-      Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
-      return;
-    }
-
-    if (_uploadTitleController.text.trim().isEmpty || _selectedAudioFile == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select an audio file and enter a title')),
-      );
-      return;
-    }
-
-    // Client-side file size constraint (Max 100MB)
-    final audioBytes = await _selectedAudioFile!.readAsBytes();
-    const maxSizeBytes = 100 * 1024 * 1024;
-    if (audioBytes.length > maxSizeBytes) {
-      if (!mounted) return;
-      final double mbSize = audioBytes.length / (1024 * 1024);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Selected audio file (${mbSize.toStringAsFixed(1)}MB) exceeds the 100MB limit. Please select a smaller file.',
-          ),
-        ),
-      );
-      return;
-    }
-
-    final success = await audioProv.uploadAudio(
-      token: auth.token!,
-      name: _uploadTitleController.text.trim(),
-      visibility: _uploadVisibility,
-      audioFile: _selectedAudioFile!,
-      thumbnailFile: _selectedThumbnailFile,
-    );
-
-    if (mounted) {
-      if (success) {
-        _uploadTitleController.clear();
-        setState(() {
-          _selectedAudioFile = null;
-          _selectedThumbnailFile = null;
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Audio uploaded to Cloudinary successfully!')),
-        );
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(audioProv.errorMessage ?? 'Upload failed')),
-        );
-      }
     }
   }
 
@@ -818,6 +872,8 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _buildUploadTab() {
     final auth = Provider.of<AuthProvider>(context);
     final audioProv = Provider.of<AudioProvider>(context);
+    final screenWidth = MediaQuery.of(context).size.width;
+    final cardWidth = screenWidth * 0.97;
 
     if (!auth.isLoggedIn) {
       return Center(
@@ -857,269 +913,380 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Upload Track to Cloudinary',
-            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            controller: _uploadTitleController,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Track Title',
-              filled: true,
-              fillColor: AppTheme.cardBg,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: _uploadVisibility,
-            dropdownColor: AppTheme.cardBg,
-            style: const TextStyle(color: Colors.white),
-            decoration: InputDecoration(
-              labelText: 'Visibility',
-              filled: true,
-              fillColor: AppTheme.cardBg,
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
-            ),
-            items: const [
-              DropdownMenuItem(value: 'public', child: Text('Public (Visible to everyone)')),
-              DropdownMenuItem(value: 'unlisted', child: Text('Unlisted (Accessible by link)')),
-              DropdownMenuItem(value: 'private', child: Text('Private (Only me)')),
-            ],
-            onChanged: (val) {
-              if (val != null) setState(() => _uploadVisibility = val);
-            },
-          ),
-          const SizedBox(height: 16),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _pickAudioFile,
-                  icon: const Icon(Icons.audio_file),
-                  label: Text(_selectedAudioFile != null ? 'Audio Selected' : 'Select Audio File'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _selectedAudioFile != null ? Colors.green.withOpacity(0.3) : AppTheme.cardBg,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
+      child: Center(
+        child: SizedBox(
+          width: cardWidth,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 20),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Upload Music & Audio Queue',
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.white),
                 ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: ElevatedButton.icon(
-                  onPressed: _pickThumbnailFile,
-                  icon: const Icon(Icons.image),
-                  label: Text(_selectedThumbnailFile != null ? 'Cover Selected' : 'Select Thumbnail'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _selectedThumbnailFile != null ? Colors.green.withOpacity(0.3) : AppTheme.cardBg,
-                    padding: const EdgeInsets.symmetric(vertical: 14),
-                  ),
+                const SizedBox(height: 6),
+                const Text(
+                  'Select multiple audio files at once to configure titles, cover images, and upload in sequence.',
+                  style: TextStyle(color: Colors.grey, fontSize: 13),
                 ),
-              ),
-            ],
-          ),
-          if (_selectedAudioFile != null || _selectedThumbnailFile != null) ...[
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: AppTheme.cardBg,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (_selectedAudioFile != null)
-                    Row(
-                      children: [
-                        const Icon(Icons.music_note, color: AppTheme.primaryAccent, size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Audio: ${_selectedAudioFile!.name}',
-                            style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.bold),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                const SizedBox(height: 16),
+
+                // Batch Selection Action Buttons
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _isBatchUploading ? null : _pickAudioFiles,
+                        icon: const Icon(Icons.library_add, color: Colors.black),
+                        label: Text(
+                          _uploadQueue.isEmpty ? 'Select Audio Files' : 'Add More Files (${_uploadQueue.length})',
+                          style: const TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryAccent,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                      ),
+                    ),
+                    if (_uploadQueue.isNotEmpty) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _isBatchUploading ? null : _startBatchUpload,
+                          icon: _isBatchUploading
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                                )
+                              : const Icon(Icons.cloud_upload, color: Colors.white),
+                          label: Text(
+                            _isBatchUploading ? 'Uploading...' : 'Upload All (${_uploadQueue.length})',
+                            style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: Colors.green,
+                            padding: const EdgeInsets.symmetric(vertical: 14),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                           ),
                         ),
-                        IconButton(
-                          icon: const Icon(Icons.close, color: Colors.redAccent, size: 18),
-                          onPressed: () => setState(() => _selectedAudioFile = null),
-                        ),
-                      ],
+                      ),
+                    ],
+                  ],
+                ),
+
+                // Batch Progress Banner
+                if (_isBatchUploading && _batchStatusMessage != null) ...[
+                  const SizedBox(height: 16),
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
                     ),
-                  if (_selectedThumbnailFile != null) ...[
-                    const SizedBox(height: 8),
-                    Row(
+                    child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(10),
-                          child: Container(
-                            width: 80,
-                            height: 80,
-                            color: AppTheme.purpleAccent.withValues(alpha: 0.3),
-                            child: FutureBuilder<Uint8List>(
-                              future: _selectedThumbnailFile!.readAsBytes(),
-                              builder: (context, snapshot) {
-                                if (snapshot.hasData && snapshot.data != null) {
-                                  return Image.memory(
-                                    snapshot.data!,
-                                    fit: BoxFit.cover,
-                                  );
-                                }
-                                return const Center(
-                                  child: CircularProgressIndicator(
-                                    color: AppTheme.primaryAccent,
-                                    strokeWidth: 2,
-                                  ),
-                                );
-                              },
+                        Row(
+                          children: [
+                            const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryAccent),
                             ),
-                          ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                _batchStatusMessage!,
+                                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 13),
+                              ),
+                            ),
+                          ],
                         ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text(
-                                'Thumbnail Preview',
-                                style: TextStyle(
-                                  color: AppTheme.primaryAccent,
-                                  fontWeight: FontWeight.bold,
-                                  fontSize: 13,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _selectedThumbnailFile!.name,
-                                style: const TextStyle(color: Colors.white70, fontSize: 12),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              const SizedBox(height: 6),
-                              OutlinedButton.icon(
-                                onPressed: () => setState(() => _selectedThumbnailFile = null),
-                                icon: const Icon(Icons.delete_outline, size: 14, color: Colors.redAccent),
-                                label: const Text('Remove Thumbnail', style: TextStyle(color: Colors.redAccent, fontSize: 11)),
-                                style: OutlinedButton.styleFrom(
-                                  side: const BorderSide(color: Colors.redAccent),
-                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                                  minimumSize: Size.zero,
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
+                        const SizedBox(height: 10),
+                        const LinearProgressIndicator(color: AppTheme.primaryAccent, backgroundColor: Colors.white12),
                       ],
                     ),
-                  ],
+                  ),
                 ],
-              ),
-            ),
-          ],
-          const SizedBox(height: 20),
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: audioProv.isUploading ? null : _handleAudioUpload,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryAccent,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              child: audioProv.isUploading
-                  ? const CircularProgressIndicator(color: Colors.black)
-                  : const Text('Upload to Cloudinary', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold, fontSize: 16)),
-            ),
-          ),
-          const SizedBox(height: 32),
-          const Text(
-            'My Uploads',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          ElevatedButton.icon(
-            onPressed: () {
-              audioProv.fetchMyAudios(token: auth.token!, page: 1, pageSize: 50);
-            },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh My Uploads'),
-            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.cardBgLight),
-          ),
-          const SizedBox(height: 12),
-          audioProv.isLoadingMy
-              ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
-              : audioProv.myAudios.isEmpty
-                  ? const Text('No uploads found yet.', style: TextStyle(color: Colors.grey))
-                  : Column(
-                      children: [
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: audioProv.myAudios.length,
-                          itemBuilder: (context, index) {
-                            final audioItem = audioProv.myAudios[index];
-                            return AudioTileWidget(
-                              audio: audioItem,
-                              audioHandler: widget.audioHandler,
-                              playlistQueue: audioProv.myAudios,
-                              index: index,
-                              onFetchMore: () => audioProv.loadMoreMyAudios(auth.token!),
-                              isMultiSelectMode: _isMultiSelectMode,
-                              isMultiSelected: _selectedAudioIds.contains(audioItem.id),
-                              onToggleSelect: () {
+
+                // Queued Upload Cards List
+                if (_uploadQueue.isNotEmpty) ...[
+                  const SizedBox(height: 20),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Queued Files (${_uploadQueue.length})',
+                        style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.white),
+                      ),
+                      TextButton.icon(
+                        onPressed: _isBatchUploading
+                            ? null
+                            : () {
                                 setState(() {
-                                  if (_selectedAudioIds.contains(audioItem.id)) {
-                                    _selectedAudioIds.remove(audioItem.id);
-                                    if (_selectedAudioIds.isEmpty) {
-                                      _isMultiSelectMode = false;
-                                    }
-                                  } else {
-                                    _selectedAudioIds.add(audioItem.id);
+                                  for (final item in _uploadQueue) {
+                                    item.dispose();
                                   }
+                                  _uploadQueue.clear();
                                 });
                               },
-                              onLongPress: () {
-                                setState(() {
-                                  _isMultiSelectMode = true;
-                                  _selectedAudioIds.add(audioItem.id);
-                                });
-                              },
-                            );
-                          },
+                        icon: const Icon(Icons.clear_all, color: Colors.redAccent, size: 18),
+                        label: const Text('Clear Queue', style: TextStyle(color: Colors.redAccent)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  ListView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: _uploadQueue.length,
+                    itemBuilder: (context, index) {
+                      final item = _uploadQueue[index];
+                      return Container(
+                        margin: const EdgeInsets.only(bottom: 14),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: AppTheme.cardBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: item.isUploading
+                                ? AppTheme.primaryAccent
+                                : item.error != null
+                                    ? Colors.redAccent
+                                    : Colors.white12,
+                          ),
                         ),
-                        if (audioProv.myPage < audioProv.myTotalPages)
-                          Padding(
-                            padding: const EdgeInsets.symmetric(vertical: 16),
-                            child: Center(
-                              child: audioProv.isLoadingMoreMy
-                                  ? const CircularProgressIndicator(color: AppTheme.primaryAccent)
-                                  : ElevatedButton.icon(
-                                      onPressed: () => audioProv.loadMoreMyAudios(auth.token!),
-                                      icon: const Icon(Icons.expand_more, color: Colors.black),
-                                      label: const Text('View More Uploads', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                                      style: ElevatedButton.styleFrom(
-                                        backgroundColor: AppTheme.primaryAccent,
-                                        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // Header Row: File Name & Delete Icon
+                            Row(
+                              children: [
+                                const Icon(Icons.audio_file, color: AppTheme.primaryAccent),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    item.audioFile.name,
+                                    style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 14),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.close, color: Colors.redAccent),
+                                  onPressed: _isBatchUploading && item.isUploading
+                                      ? null
+                                      : () {
+                                          setState(() {
+                                            item.dispose();
+                                            _uploadQueue.removeAt(index);
+                                          });
+                                        },
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+
+                            // Editable Track Title Input
+                            TextField(
+                              controller: item.titleController,
+                              enabled: !_isBatchUploading,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
+                                labelText: 'Track Title',
+                                filled: true,
+                                fillColor: AppTheme.background,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                              ),
+                            ),
+                            const SizedBox(height: 10),
+
+                            // Visibility Selector Dropdown
+                            DropdownButtonFormField<String>(
+                              value: item.visibility,
+                              dropdownColor: AppTheme.cardBg,
+                              style: const TextStyle(color: Colors.white),
+                              decoration: InputDecoration(
+                                labelText: 'Visibility',
+                                filled: true,
+                                fillColor: AppTheme.background,
+                                contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(10), borderSide: BorderSide.none),
+                              ),
+                              items: const [
+                                DropdownMenuItem(value: 'public', child: Text('Public (Visible to everyone)')),
+                                DropdownMenuItem(value: 'unlisted', child: Text('Unlisted (Accessible by link)')),
+                                DropdownMenuItem(value: 'private', child: Text('Private (Only me)')),
+                              ],
+                              onChanged: _isBatchUploading
+                                  ? null
+                                  : (val) {
+                                      if (val != null) setState(() => item.visibility = val);
+                                    },
+                            ),
+                            const SizedBox(height: 10),
+
+                            // Cover Image Picker & Thumbnail Preview
+                            Row(
+                              children: [
+                                OutlinedButton.icon(
+                                  onPressed: _isBatchUploading ? null : () => _pickQueueItemCover(item),
+                                  icon: const Icon(Icons.image, size: 18, color: AppTheme.primaryAccent),
+                                  label: Text(
+                                    item.thumbnailFile != null ? 'Change Cover' : 'Select Cover Image',
+                                    style: const TextStyle(color: AppTheme.primaryAccent, fontSize: 12),
+                                  ),
+                                  style: OutlinedButton.styleFrom(
+                                    side: const BorderSide(color: AppTheme.primaryAccent),
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                                  ),
+                                ),
+                                if (item.thumbnailFile != null) ...[
+                                  const SizedBox(width: 12),
+                                  ClipRRect(
+                                    borderRadius: BorderRadius.circular(8),
+                                    child: Container(
+                                      width: 44,
+                                      height: 44,
+                                      color: AppTheme.purpleAccent.withValues(alpha: 0.3),
+                                      child: FutureBuilder<Uint8List>(
+                                        future: item.thumbnailFile!.readAsBytes(),
+                                        builder: (context, snapshot) {
+                                          if (snapshot.hasData && snapshot.data != null) {
+                                            return Image.memory(snapshot.data!, fit: BoxFit.cover);
+                                          }
+                                          return const Center(child: CircularProgressIndicator(strokeWidth: 2));
+                                        },
                                       ),
                                     ),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.cancel, color: Colors.grey, size: 18),
+                                    onPressed: _isBatchUploading
+                                        ? null
+                                        : () {
+                                            setState(() {
+                                              item.thumbnailFile = null;
+                                            });
+                                          },
+                                  ),
+                                ],
+                              ],
                             ),
-                          ),
-                      ],
+
+                            if (item.isUploading) ...[
+                              const SizedBox(height: 10),
+                              const LinearProgressIndicator(color: AppTheme.primaryAccent),
+                            ],
+
+                            if (item.error != null) ...[
+                              const SizedBox(height: 6),
+                              Text(
+                                item.error!,
+                                style: const TextStyle(color: Colors.redAccent, fontSize: 12),
+                              ),
+                            ],
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
+
+                const SizedBox(height: 32),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'My Uploads',
+                      style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
                     ),
-          SizedBox(height: _isMultiSelectMode ? 160 : 80),
-        ],
+                    IconButton(
+                      icon: const Icon(Icons.refresh, color: AppTheme.primaryAccent),
+                      onPressed: () {
+                        audioProv.fetchMyAudios(token: auth.token!, page: 1, pageSize: 50);
+                      },
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+
+                // User Uploaded Records List (Responsive 97% Screen Width)
+                audioProv.isLoadingMy
+                    ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
+                    : audioProv.myAudios.isEmpty
+                        ? const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 24),
+                            child: Center(
+                              child: Text('No uploaded tracks found yet.', style: TextStyle(color: Colors.grey)),
+                            ),
+                          )
+                        : Column(
+                            children: [
+                              ListView.builder(
+                                shrinkWrap: true,
+                                physics: const NeverScrollableScrollPhysics(),
+                                itemCount: audioProv.myAudios.length,
+                                itemBuilder: (context, index) {
+                                  final audioItem = audioProv.myAudios[index];
+                                  return AudioTileWidget(
+                                    audio: audioItem,
+                                    audioHandler: widget.audioHandler,
+                                    playlistQueue: audioProv.myAudios,
+                                    index: index,
+                                    onFetchMore: () => audioProv.loadMoreMyAudios(auth.token!),
+                                    isMultiSelectMode: _isMultiSelectMode,
+                                    isMultiSelected: _selectedAudioIds.contains(audioItem.id),
+                                    onToggleSelect: () {
+                                      setState(() {
+                                        if (_selectedAudioIds.contains(audioItem.id)) {
+                                          _selectedAudioIds.remove(audioItem.id);
+                                          if (_selectedAudioIds.isEmpty) {
+                                            _isMultiSelectMode = false;
+                                          }
+                                        } else {
+                                          _selectedAudioIds.add(audioItem.id);
+                                        }
+                                      });
+                                    },
+                                    onLongPress: () {
+                                      setState(() {
+                                        _isMultiSelectMode = true;
+                                        _selectedAudioIds.add(audioItem.id);
+                                      });
+                                    },
+                                  );
+                                },
+                              ),
+                              if (audioProv.myPage < audioProv.myTotalPages)
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(vertical: 16),
+                                  child: Center(
+                                    child: audioProv.isLoadingMoreMy
+                                        ? const CircularProgressIndicator(color: AppTheme.primaryAccent)
+                                        : ElevatedButton.icon(
+                                            onPressed: () => audioProv.loadMoreMyAudios(auth.token!),
+                                            icon: const Icon(Icons.expand_more, color: Colors.black),
+                                            label: const Text('View More Uploads', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                                            style: ElevatedButton.styleFrom(
+                                              backgroundColor: AppTheme.primaryAccent,
+                                              padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+                                            ),
+                                          ),
+                                  ),
+                                ),
+                            ],
+                          ),
+                SizedBox(height: _isMultiSelectMode ? 160 : 80),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1385,6 +1552,9 @@ class _HomeScreenState extends State<HomeScreen> {
             });
             if (idx == 1 && auth.isLoggedIn) {
               Provider.of<PlaylistProvider>(context, listen: false).fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 50);
+            }
+            if (idx == 3 && auth.isLoggedIn) {
+              Provider.of<AudioProvider>(context, listen: false).fetchMyAudios(token: auth.token!, page: 1, pageSize: 50);
             }
           },
           items: const [
