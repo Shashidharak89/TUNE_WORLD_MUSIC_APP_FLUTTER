@@ -11,6 +11,7 @@ Future<AudioHandler> initAudioService() async {
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: true,
       androidNotificationIcon: 'mipmap/ic_launcher',
+      androidShowNotificationBadge: true,
     ),
   );
 }
@@ -32,39 +33,13 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   }
 
   void _initStreams() {
-    // Listen to playback state changes from just_audio and map to AudioService state
+    // Listen to playback state changes from just_audio and update AudioService playbackState
     _player.playbackEventStream.listen((PlaybackEvent event) {
-      final playing = _player.playing;
-      playbackState.add(playbackState.value.copyWith(
-        controls: [
-          MediaControl.skipToPrevious,
-          if (playing) MediaControl.pause else MediaControl.play,
-          MediaControl.skipToNext,
-          MediaControl.stop,
-        ],
-        systemActions: const {
-          MediaAction.seek,
-          MediaAction.seekForward,
-          MediaAction.seekBackward,
-        },
-        androidCompactActionIndices: const [0, 1, 2],
-        processingState: const {
-          ProcessingState.idle: AudioProcessingState.idle,
-          ProcessingState.loading: AudioProcessingState.loading,
-          ProcessingState.buffering: AudioProcessingState.buffering,
-          ProcessingState.ready: AudioProcessingState.ready,
-          ProcessingState.completed: AudioProcessingState.completed,
-        }[_player.processingState]!,
-        playing: playing,
-        updatePosition: _player.position,
-        bufferedPosition: _player.bufferedPosition,
-        speed: _player.speed,
-        queueIndex: _currentIndex,
-      ));
+      _broadcastState();
     });
 
-    // Handle auto track progression when song completes
     _player.playerStateStream.listen((state) {
+      _broadcastState();
       if (state.processingState == ProcessingState.completed) {
         skipToNext();
       }
@@ -78,8 +53,61 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     });
   }
 
+  void _broadcastState() {
+    final playing = _player.playing;
+    final state = _player.processingState;
+
+    playbackState.add(playbackState.value.copyWith(
+      controls: [
+        MediaControl.skipToPrevious,
+        if (playing) MediaControl.pause else MediaControl.play,
+        MediaControl.skipToNext,
+        MediaControl.stop,
+      ],
+      systemActions: const {
+        MediaAction.seek,
+        MediaAction.seekForward,
+        MediaAction.seekBackward,
+        MediaAction.skipToNext,
+        MediaAction.skipToPrevious,
+        MediaAction.play,
+        MediaAction.pause,
+        MediaAction.stop,
+      },
+      androidCompactActionIndices: const [0, 1, 2],
+      processingState: const {
+        ProcessingState.idle: AudioProcessingState.idle,
+        ProcessingState.loading: AudioProcessingState.loading,
+        ProcessingState.buffering: AudioProcessingState.buffering,
+        ProcessingState.ready: AudioProcessingState.ready,
+        ProcessingState.completed: AudioProcessingState.completed,
+      }[state]!,
+      playing: playing,
+      updatePosition: _player.position,
+      bufferedPosition: _player.bufferedPosition,
+      speed: _player.speed,
+      queueIndex: _currentIndex,
+    ));
+  }
+
   void appendQueue(List<AudioModel> newAudios) {
     _playlist.addAll(newAudios);
+    _updateQueueItems();
+  }
+
+  void _updateQueueItems() {
+    final items = _playlist.map((audio) => MediaItem(
+      id: audio.id.isNotEmpty ? audio.id : audio.audioUrl,
+      title: audio.name,
+      artist: audio.userName ?? 'Tune World Artist',
+      album: 'Tune World',
+      artUri: audio.thumbnailImageUrl.isNotEmpty
+          ? Uri.tryParse(audio.thumbnailImageUrl)
+          : null,
+      extras: {'url': audio.audioUrl},
+    )).toList();
+
+    queue.add(items);
   }
 
   Future<void> playTrack(AudioModel audio, {
@@ -103,6 +131,8 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
       _currentIndex = 0;
     }
 
+    _updateQueueItems();
+
     final currentAudio = _playlist[_currentIndex];
     
     // Create MediaItem for system notification controls
@@ -121,7 +151,11 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     
     try {
       await _player.stop();
-      await _player.setUrl(currentAudio.audioUrl);
+      if (currentAudio.audioUrl.startsWith('http://') || currentAudio.audioUrl.startsWith('https://')) {
+        await _player.setUrl(currentAudio.audioUrl);
+      } else {
+        await _player.setFilePath(currentAudio.audioUrl);
+      }
       await _player.play();
     } catch (e) {
       print('Audio playback error: $e');
@@ -144,6 +178,26 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
   Future<void> seek(Duration position) => _player.seek(position);
 
   @override
+  Future<void> fastForward() async {
+    final newPos = _player.position + const Duration(seconds: 10);
+    await _player.seek(newPos);
+  }
+
+  @override
+  Future<void> rewind() async {
+    final newPos = _player.position - const Duration(seconds: 10);
+    await _player.seek(newPos < Duration.zero ? Duration.zero : newPos);
+  }
+
+  @override
+  Future<void> skipToQueueItem(int index) async {
+    if (index >= 0 && index < _playlist.length) {
+      _currentIndex = index;
+      await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
+    }
+  }
+
+  @override
   Future<void> skipToNext() async {
     if (_playlist.isEmpty) return;
 
@@ -151,7 +205,6 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
       _currentIndex++;
       await playTrack(_playlist[_currentIndex], queueList: _playlist, index: _currentIndex);
     } else {
-      // Reached the end of current local queue - check if more tracks can be fetched automatically
       if (onFetchMore != null) {
         final hasMore = await onFetchMore!();
         if (hasMore && _currentIndex < _playlist.length - 1) {
@@ -160,7 +213,6 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
           return;
         }
       }
-      // Fallback: Loop back to start if no more pages
       if (_playlist.isNotEmpty) {
         _currentIndex = 0;
         await playTrack(_playlist[0], queueList: _playlist, index: 0);

@@ -151,8 +151,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                     if (filtered.isNotEmpty)
                       TextButton.icon(
                         onPressed: () {
-                          widget.audioHandler.playQueue(filtered, 0);
+                          widget.audioHandler.playTrack(filtered[0], queueList: filtered, index: 0);
                         },
+
                         icon: const Icon(Icons.play_circle_fill, color: AppTheme.primaryAccent),
                         label: const Text('Play All', style: TextStyle(color: AppTheme.primaryAccent)),
                       ),
