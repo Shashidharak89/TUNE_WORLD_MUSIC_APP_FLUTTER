@@ -5,8 +5,10 @@ import '../models/playlist_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../services/audio_handler.dart';
+import '../services/file_picker_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/audio_tile_widget.dart';
+
 
 class PlaylistDetailsScreen extends StatefulWidget {
   final String playlistId;
@@ -141,14 +143,13 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
                     onPressed: () async {
-                      final res = await FilePicker.pickFiles(
-                        type: FileType.image,
-                        withData: true,
-                      );
+                      final res = await FilePickerService.pickFiles(type: FileType.image);
                       if (res.isNotEmpty) {
                         setState(() => selectedCover = res.first);
                       }
+
                     },
+
                     icon: const Icon(Icons.image, color: AppTheme.primaryAccent),
                     label: Text(
                       selectedCover != null ? selectedCover!.name : 'Change Cover Image',

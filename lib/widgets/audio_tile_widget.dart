@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:audio_service/audio_service.dart';
@@ -8,7 +9,9 @@ import '../providers/audio_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../providers/download_provider.dart';
 import '../services/audio_handler.dart';
+import '../services/file_picker_service.dart';
 import '../theme/app_theme.dart';
+
 
 class AudioTileWidget extends StatelessWidget {
   final AudioModel audio;
@@ -424,14 +427,13 @@ class AudioTileWidget extends StatelessWidget {
                   const SizedBox(height: 16),
                   OutlinedButton.icon(
                     onPressed: () async {
-                      final res = await FilePicker.pickFiles(
-                        type: FileType.image,
-                        withData: true,
-                      );
+                      final res = await FilePickerService.pickFiles(type: FileType.image);
                       if (res.isNotEmpty) {
                         setState(() => selectedThumbnail = res.first);
                       }
+
                     },
+
                     icon: const Icon(Icons.image, color: AppTheme.primaryAccent),
                     label: Text(
                       selectedThumbnail != null ? selectedThumbnail!.name : 'Change Cover Image',

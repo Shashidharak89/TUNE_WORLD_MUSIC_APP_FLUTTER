@@ -7,6 +7,7 @@ import '../providers/audio_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../services/audio_handler.dart';
 import '../services/api_service.dart';
+import '../services/file_picker_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/audio_tile_widget.dart';
 import '../widgets/playlist_card_widget.dart';
@@ -56,10 +57,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // File Picker Helpers
   Future<void> _pickAudioFile() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.audio,
-      withData: true,
-    );
+    final result = await FilePickerService.pickFiles(type: FileType.audio);
     if (result.isNotEmpty) {
       final picked = result.first;
       final filename = picked.name;
@@ -78,10 +76,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickThumbnailFile() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-      withData: true,
-    );
+    final result = await FilePickerService.pickFiles(type: FileType.image);
     if (result.isNotEmpty) {
       setState(() {
         _selectedThumbnailFile = result.first;
@@ -90,16 +85,14 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _pickPlaylistCover() async {
-    final result = await FilePicker.pickFiles(
-      type: FileType.image,
-      withData: true,
-    );
+    final result = await FilePickerService.pickFiles(type: FileType.image);
     if (result.isNotEmpty) {
       setState(() {
         _selectedPlaylistCover = result.first;
       });
     }
   }
+
 
   void _handleAudioUpload() async {
     final auth = Provider.of<AuthProvider>(context, listen: false);

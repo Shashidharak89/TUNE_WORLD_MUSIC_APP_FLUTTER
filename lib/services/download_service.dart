@@ -45,6 +45,7 @@ class DownloadService {
       if (sanitizedName.isEmpty) sanitizedName = 'audio_${audio.id}';
 
       String localFilePath = audio.audioUrl;
+      String localThumbnailPath = audio.thumbnailImageUrl;
 
       if (!kIsWeb) {
         final dirPath = await getTuneWorldDownloadDirPath();
@@ -53,6 +54,20 @@ class DownloadService {
           final file = File('$dirPath/$sanitizedName$ext');
           await file.writeAsBytes(bytes);
           localFilePath = file.path;
+
+          // Also download thumbnail locally if available
+          if (audio.thumbnailImageUrl.isNotEmpty && audio.thumbnailImageUrl.startsWith('http')) {
+            try {
+              final thumbRes = await http.get(Uri.parse(audio.thumbnailImageUrl));
+              if (thumbRes.statusCode == 200) {
+                final thumbFile = File('$dirPath/.thumb_$sanitizedName.jpg');
+                await thumbFile.writeAsBytes(thumbRes.bodyBytes);
+                localThumbnailPath = thumbFile.path;
+              }
+            } catch (e) {
+              print('Thumbnail download warning: $e');
+            }
+          }
         }
       }
 
@@ -61,16 +76,16 @@ class DownloadService {
       final String? existingJson = prefs.getString(_prefsKey);
       List<dynamic> list = existingJson != null ? jsonDecode(existingJson) : [];
 
-      // Check if already downloaded
       final index = list.indexWhere((item) => item['id'] == audio.id);
       final downloadItem = {
         'id': audio.id,
         'name': audio.name,
         'userId': audio.userId,
         'userName': audio.userName ?? 'Tune World Artist',
-        'audioUrl': localFilePath, // Points to local file path when offline
+        'audioUrl': localFilePath,
         'remoteAudioUrl': audio.audioUrl,
-        'thumbnailImageUrl': audio.thumbnailImageUrl,
+        'thumbnailImageUrl': localThumbnailPath,
+        'remoteThumbnailUrl': audio.thumbnailImageUrl,
         'visibility': audio.visibility,
         'downloadedAt': DateTime.now().toIso8601String(),
       };
@@ -101,10 +116,14 @@ class DownloadService {
 
       for (var item in list) {
         String localUrl = item['audioUrl'] ?? '';
-        // If file exists locally or is remote, keep it
+        String localThumb = item['thumbnailImageUrl'] ?? '';
+
         if (!kIsWeb && localUrl.startsWith('/') && !File(localUrl).existsSync()) {
-          // If local file was deleted manually from file manager, fall back to remote URL if available
           localUrl = item['remoteAudioUrl'] ?? localUrl;
+        }
+
+        if (!kIsWeb && localThumb.startsWith('/') && !File(localThumb).existsSync()) {
+          localThumb = item['remoteThumbnailUrl'] ?? localThumb;
         }
 
         result.add(AudioModel(
@@ -113,7 +132,7 @@ class DownloadService {
           userId: item['userId'] ?? '',
           userName: item['userName'] ?? 'Tune World Artist',
           audioUrl: localUrl,
-          thumbnailImageUrl: item['thumbnailImageUrl'] ?? '',
+          thumbnailImageUrl: localThumb,
           visibility: item['visibility'] ?? 'public',
           createdAt: item['downloadedAt'] != null ? DateTime.tryParse(item['downloadedAt']) : null,
         ));
@@ -136,12 +155,22 @@ class DownloadService {
       final index = list.indexWhere((item) => item['id'] == audioId);
       if (index != -1) {
         final localUrl = list[index]['audioUrl'] ?? '';
+        final localThumb = list[index]['thumbnailImageUrl'] ?? '';
+
         if (!kIsWeb && localUrl.startsWith('/')) {
           final file = File(localUrl);
           if (await file.exists()) {
             await file.delete();
           }
         }
+
+        if (!kIsWeb && localThumb.startsWith('/')) {
+          final thumbFile = File(localThumb);
+          if (await thumbFile.exists()) {
+            await thumbFile.delete();
+          }
+        }
+
         list.removeAt(index);
         await prefs.setString(_prefsKey, jsonEncode(list));
         return true;
