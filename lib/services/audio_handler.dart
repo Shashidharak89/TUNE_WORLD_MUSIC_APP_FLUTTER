@@ -338,4 +338,10 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
       }
     }
   }
+
+  @override
+  Future<void> onTaskRemoved() async {
+    await stop();
+    await super.onTaskRemoved();
+  }
 }

@@ -30,6 +30,8 @@ class PlaylistDetailsScreen extends StatefulWidget {
 
 class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
   final _searchController = TextEditingController();
+  bool _isMultiSelectMode = false;
+  final Set<String> _selectedAudioIds = {};
 
   @override
   void initState() {
@@ -43,6 +45,124 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  void _bulkRemoveFromPlaylist(List<String> audioIds) async {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final pProv = Provider.of<PlaylistProvider>(context, listen: false);
+
+    if (!auth.isLoggedIn) return;
+
+    for (final audioId in audioIds) {
+      await pProv.removeAudioFromPlaylist(
+        token: auth.token!,
+        playlistId: widget.playlistId,
+        audioId: audioId,
+      );
+    }
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Removed ${audioIds.length} song(s) from playlist')),
+      );
+      setState(() {
+        _isMultiSelectMode = false;
+        _selectedAudioIds.clear();
+      });
+      _loadDetails(page: 1);
+    }
+  }
+
+  void _showBulkAddToPlaylistDialog(List<String> audioIds) {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final pProv = Provider.of<PlaylistProvider>(context, listen: false);
+
+    if (!auth.isLoggedIn) return;
+
+    pProv.fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 100);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Consumer<PlaylistProvider>(
+          builder: (context, pProvider, _) {
+            return SafeArea(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Add ${audioIds.length} Song(s) to Playlist',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (pProvider.isLoadingMy)
+                      const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
+                    else if (pProvider.myPlaylists.isEmpty)
+                      const Center(
+                        child: Text(
+                          'No personal playlists found. Create one first!',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: pProvider.myPlaylists.length,
+                          itemBuilder: (context, index) {
+                            final pl = pProvider.myPlaylists[index];
+                            return ListTile(
+                              leading: const Icon(Icons.playlist_add, color: AppTheme.primaryAccent),
+                              title: Text(pl.name, style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                'Visibility: ${pl.visibility.toUpperCase()}',
+                                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                              ),
+                              onTap: () async {
+                                Navigator.pop(ctx);
+                                final success = await pProvider.bulkAddAudioToPlaylist(
+                                  token: auth.token!,
+                                  playlistId: pl.id,
+                                  audioIds: audioIds,
+                                );
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        success
+                                            ? 'Added ${audioIds.length} track(s) to "${pl.name}"'
+                                            : (pProvider.errorMessage ?? 'Failed to add tracks to playlist'),
+                                      ),
+                                    ),
+                                  );
+                                  setState(() {
+                                    _isMultiSelectMode = false;
+                                    _selectedAudioIds.clear();
+                                  });
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
   }
 
   void _loadDetails({int page = 1}) {
@@ -317,14 +437,50 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
   @override
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
+    final pProv = Provider.of<PlaylistProvider>(context);
 
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: const Text('Playlist Details'),
-      ),
-      body: Consumer<PlaylistProvider>(
-        builder: (context, pProv, child) {
+      appBar: _isMultiSelectMode
+          ? AppBar(
+              backgroundColor: AppTheme.cardBg,
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () {
+                  setState(() {
+                    _isMultiSelectMode = false;
+                    _selectedAudioIds.clear();
+                  });
+                },
+              ),
+              title: Text(
+                '${_selectedAudioIds.length} Selected',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedAudioIds.addAll(pProv.currentPlaylistAudios.map((a) => a.id));
+                    });
+                  },
+                  child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedAudioIds.clear();
+                    });
+                  },
+                  child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
+                ),
+              ],
+            )
+          : AppBar(
+              title: const Text('Playlist Details'),
+            ),
+      body: Builder(
+        builder: (context) {
           if (pProv.isLoadingDetails) {
             return const Center(
               child: CircularProgressIndicator(color: AppTheme.primaryAccent),
@@ -352,216 +508,288 @@ class _PlaylistDetailsScreenState extends State<PlaylistDetailsScreen> {
                   auth.user?.id == playlist.id ||
                   playlist.userId.isEmpty);
 
-          return Column(
+          return Stack(
             children: [
-              // Header Card with Actions & Play Button
-              Container(
-                padding: const EdgeInsets.all(16),
-                margin: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardBg,
-                  borderRadius: BorderRadius.circular(20),
-                  border: Border.all(
-                    color: AppTheme.primaryAccent.withValues(alpha: 0.2),
-                  ),
-                ),
-                child: Column(
-                  children: [
-                    Row(
+              Column(
+                children: [
+                  // Header Card with Actions & Play Button
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    margin: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: AppTheme.cardBg,
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(
+                        color: AppTheme.primaryAccent.withValues(alpha: 0.2),
+                      ),
+                    ),
+                    child: Column(
                       children: [
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Container(
-                            width: 80,
-                            height: 80,
-                            color: AppTheme.purpleAccent.withValues(alpha: 0.3),
-                            child: playlist.imageUrl.isNotEmpty
-                                ? Image.network(
-                                    playlist.imageUrl,
-                                    fit: BoxFit.cover,
-                                    errorBuilder: (_, __, ___) => const Icon(
-                                      Icons.queue_music,
-                                      size: 40,
-                                      color: AppTheme.primaryAccent,
+                        Row(
+                          children: [
+                            ClipRRect(
+                              borderRadius: BorderRadius.circular(16),
+                              child: Container(
+                                width: 80,
+                                height: 80,
+                                color: AppTheme.purpleAccent.withValues(alpha: 0.3),
+                                child: playlist.imageUrl.isNotEmpty
+                                    ? Image.network(
+                                        playlist.imageUrl,
+                                        fit: BoxFit.cover,
+                                        errorBuilder: (_, __, ___) => const Icon(
+                                          Icons.queue_music,
+                                          size: 40,
+                                          color: AppTheme.primaryAccent,
+                                        ),
+                                      )
+                                    : const Icon(
+                                        Icons.queue_music,
+                                        size: 40,
+                                        color: AppTheme.primaryAccent,
+                                      ),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    playlist.name,
+                                    style: const TextStyle(
+                                      fontSize: 18,
+                                      fontWeight: FontWeight.bold,
+                                      color: Colors.white,
                                     ),
-                                  )
-                                : const Icon(
-                                    Icons.queue_music,
-                                    size: 40,
-                                    color: AppTheme.primaryAccent,
                                   ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    'Created by ${playlist.userName ?? "User"}',
+                                    style: const TextStyle(color: Colors.grey, fontSize: 13),
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    child: Text(
+                                      'Visibility: ${playlist.visibility.toUpperCase()}',
+                                      style: const TextStyle(
+                                        color: AppTheme.primaryAccent,
+                                        fontSize: 11,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (isOwner)
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.edit_outlined, color: AppTheme.primaryAccent),
+                                    onPressed: () => _showEditPlaylistDialog(context, playlist),
+                                  ),
+                                  IconButton(
+                                    icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
+                                    onPressed: () => _confirmDeletePlaylist(context, playlist),
+                                  ),
+                                ],
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        // Play Playlist Button
+                        SizedBox(
+                          width: double.infinity,
+                          child: ElevatedButton.icon(
+                            onPressed: _playPlaylist,
+                            icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 28),
+                            label: const Text(
+                              'Play Playlist',
+                              style: TextStyle(
+                                color: Colors.black,
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                              ),
+                            ),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: AppTheme.primaryAccent,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12),
+                              ),
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                playlist.name,
-                                style: const TextStyle(
-                                  fontSize: 18,
-                                  fontWeight: FontWeight.bold,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Created by ${playlist.userName ?? "User"}',
-                                style: const TextStyle(color: Colors.grey, fontSize: 13),
-                              ),
-                              const SizedBox(height: 4),
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                                  borderRadius: BorderRadius.circular(6),
-                                ),
-                                child: Text(
-                                  'Visibility: ${playlist.visibility.toUpperCase()}',
-                                  style: const TextStyle(
-                                    color: AppTheme.primaryAccent,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        if (isOwner)
-                          Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.edit_outlined, color: AppTheme.primaryAccent),
-                                onPressed: () => _showEditPlaylistDialog(context, playlist),
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.delete_outline, color: Colors.redAccent),
-                                onPressed: () => _confirmDeletePlaylist(context, playlist),
-                              ),
-                            ],
-                          ),
                       ],
                     ),
-                    const SizedBox(height: 12),
-                    // Play Playlist Button
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _playPlaylist,
-                        icon: const Icon(Icons.play_arrow_rounded, color: Colors.black, size: 28),
-                        label: const Text(
-                          'Play Playlist',
-                          style: TextStyle(
-                            color: Colors.black,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 16,
-                          ),
+                  ),
+
+                  // Search inside playlist
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+                    child: TextField(
+                      controller: _searchController,
+                      style: const TextStyle(color: Colors.white),
+                      decoration: InputDecoration(
+                        hintText: 'Search songs in playlist...',
+                        hintStyle: const TextStyle(color: Colors.grey),
+                        prefixIcon: const Icon(Icons.search, color: AppTheme.primaryAccent),
+                        suffixIcon: IconButton(
+                          icon: const Icon(Icons.send, color: AppTheme.primaryAccent),
+                          onPressed: () => _loadDetails(page: 1),
                         ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.primaryAccent,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(12),
-                          ),
+                        filled: true,
+                        fillColor: AppTheme.cardBg,
+                        contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(12),
+                          borderSide: BorderSide.none,
                         ),
                       ),
                     ),
-                  ],
-                ),
-              ),
+                  ),
 
-              // Search inside playlist
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-                child: TextField(
-                  controller: _searchController,
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search songs in playlist...',
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    prefixIcon: const Icon(Icons.search, color: AppTheme.primaryAccent),
-                    suffixIcon: IconButton(
-                      icon: const Icon(Icons.send, color: AppTheme.primaryAccent),
-                      onPressed: () => _loadDetails(page: 1),
+                  // Songs List
+                  Expanded(
+                    child: pProv.currentPlaylistAudios.isEmpty
+                        ? const Center(
+                            child: Text(
+                              'No songs found in this playlist',
+                              style: TextStyle(color: Colors.grey),
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: pProv.currentPlaylistAudios.length + 1,
+                            padding: const EdgeInsets.only(bottom: 120),
+                            itemBuilder: (context, index) {
+                              if (index == pProv.currentPlaylistAudios.length) {
+                                // View More Button at bottom of list
+                                if (pProv.detailsPage < pProv.detailsTotalPages) {
+                                  return Padding(
+                                    padding: const EdgeInsets.all(16.0),
+                                    child: Center(
+                                      child: ElevatedButton.icon(
+                                        onPressed: pProv.isLoadingMoreDetails
+                                            ? null
+                                            : () {
+                                                final auth = Provider.of<AuthProvider>(context, listen: false);
+                                                pProv.loadMorePlaylistDetails(
+                                                  token: auth.token,
+                                                  playlistId: widget.playlistId,
+                                                  search: _searchController.text.trim(),
+                                                );
+                                              },
+                                        icon: const Icon(Icons.expand_more, color: Colors.black),
+                                        label: pProv.isLoadingMoreDetails
+                                            ? const SizedBox(
+                                                width: 20,
+                                                height: 20,
+                                                child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
+                                              )
+                                            : const Text(
+                                                'View More Songs',
+                                                style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
+                                              ),
+                                        style: ElevatedButton.styleFrom(
+                                          backgroundColor: AppTheme.primaryAccent,
+                                          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return const SizedBox(height: 80);
+                              }
+
+                              final song = pProv.currentPlaylistAudios[index];
+                              return AudioTileWidget(
+                                audio: song,
+                                audioHandler: widget.audioHandler,
+                                playlistQueue: pProv.currentPlaylistAudios,
+                                index: index,
+                                playlistId: widget.playlistId,
+                                isPlaylistOwner: isOwner,
+                                isMultiSelectMode: _isMultiSelectMode,
+                                isMultiSelected: _selectedAudioIds.contains(song.id),
+                                onToggleSelect: () {
+                                  setState(() {
+                                    if (_selectedAudioIds.contains(song.id)) {
+                                      _selectedAudioIds.remove(song.id);
+                                      if (_selectedAudioIds.isEmpty) {
+                                        _isMultiSelectMode = false;
+                                      }
+                                    } else {
+                                      _selectedAudioIds.add(song.id);
+                                    }
+                                  });
+                                },
+                                onLongPress: () {
+                                  setState(() {
+                                    _isMultiSelectMode = true;
+                                    _selectedAudioIds.add(song.id);
+                                  });
+                                },
+                              );
+                            },
+                          ),
+                  ),
+                ],
+              ),
+              if (_isMultiSelectMode)
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 10,
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                    decoration: BoxDecoration(
+                      color: AppTheme.cardBg,
+                      border: const Border(top: BorderSide(color: Colors.white12)),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.5),
+                          blurRadius: 10,
+                          offset: const Offset(0, -2),
+                        ),
+                      ],
                     ),
-                    filled: true,
-                    fillColor: AppTheme.cardBg,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide.none,
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _selectedAudioIds.isEmpty
+                                ? null
+                                : () => _showBulkAddToPlaylistDialog(_selectedAudioIds.toList()),
+                            icon: const Icon(Icons.playlist_add, color: Colors.black),
+                            label: const Text('Add to Playlist', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                          ),
+                        ),
+                        if (isOwner) ...[
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: ElevatedButton.icon(
+                              onPressed: _selectedAudioIds.isEmpty
+                                  ? null
+                                  : () => _bulkRemoveFromPlaylist(_selectedAudioIds.toList()),
+                              icon: const Icon(Icons.playlist_remove, color: Colors.white),
+                              label: const Text('Remove Selected', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                              style: ElevatedButton.styleFrom(backgroundColor: Colors.orangeAccent),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                   ),
                 ),
-              ),
-
-              // Songs List
-              Expanded(
-                child: pProv.currentPlaylistAudios.isEmpty
-                    ? const Center(
-                        child: Text(
-                          'No songs found in this playlist',
-                          style: TextStyle(color: Colors.grey),
-                        ),
-                      )
-                    : ListView.builder(
-                        itemCount: pProv.currentPlaylistAudios.length + 1,
-                        itemBuilder: (context, index) {
-                          if (index == pProv.currentPlaylistAudios.length) {
-                            // View More Button at bottom of list
-                            if (pProv.detailsPage < pProv.detailsTotalPages) {
-                              return Padding(
-                                padding: const EdgeInsets.all(16.0),
-                                child: Center(
-                                  child: ElevatedButton.icon(
-                                    onPressed: pProv.isLoadingMoreDetails
-                                        ? null
-                                        : () {
-                                            final auth = Provider.of<AuthProvider>(context, listen: false);
-                                            pProv.loadMorePlaylistDetails(
-                                              token: auth.token,
-                                              playlistId: widget.playlistId,
-                                              search: _searchController.text.trim(),
-                                            );
-                                          },
-                                    icon: const Icon(Icons.expand_more, color: Colors.black),
-                                    label: pProv.isLoadingMoreDetails
-                                        ? const SizedBox(
-                                            width: 20,
-                                            height: 20,
-                                            child: CircularProgressIndicator(color: Colors.black, strokeWidth: 2),
-                                          )
-                                        : const Text(
-                                            'View More Songs',
-                                            style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold),
-                                          ),
-                                    style: ElevatedButton.styleFrom(
-                                      backgroundColor: AppTheme.primaryAccent,
-                                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                                    ),
-                                  ),
-                                ),
-                              );
-                            }
-                            return const SizedBox(height: 80);
-                          }
-
-                          final song = pProv.currentPlaylistAudios[index];
-                          return AudioTileWidget(
-                            audio: song,
-                            audioHandler: widget.audioHandler,
-                            playlistQueue: pProv.currentPlaylistAudios,
-                            index: index,
-                            playlistId: widget.playlistId,
-                            isPlaylistOwner: isOwner,
-                          );
-                        },
-                      ),
-              ),
             ],
           );
         },

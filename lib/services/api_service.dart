@@ -513,4 +513,39 @@ class ApiService {
       throw Exception(data['message'] ?? 'Failed to remove audio from playlist');
     }
   }
+
+  // Bulk Delete Audios
+  static Future<void> bulkDeleteAudios({
+    required String token,
+    required List<String> audioIds,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/audio/bulk-delete'),
+      headers: _headers(token),
+      body: jsonEncode({'audioIds': audioIds}),
+    );
+
+    final data = _parseResponse(response);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(data['message'] ?? 'Failed to delete audios in bulk');
+    }
+  }
+
+  // Bulk Add Audio to Playlist
+  static Future<void> bulkAddAudioToPlaylist({
+    required String token,
+    required String playlistId,
+    required List<String> audioIds,
+  }) async {
+    final response = await http.post(
+      Uri.parse('$baseUrl/playlists/$playlistId/bulk-add-audio'),
+      headers: _headers(token),
+      body: jsonEncode({'audioIds': audioIds}),
+    );
+
+    final data = _parseResponse(response);
+    if (response.statusCode != 200 || data['success'] != true) {
+      throw Exception(data['message'] ?? 'Failed to bulk add audios to playlist');
+    }
+  }
 }

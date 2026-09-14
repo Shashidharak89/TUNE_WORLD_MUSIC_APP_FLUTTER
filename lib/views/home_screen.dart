@@ -8,7 +8,6 @@ import '../providers/auth_provider.dart';
 import '../providers/audio_provider.dart';
 import '../providers/playlist_provider.dart';
 import '../services/audio_handler.dart';
-import '../services/api_service.dart';
 import '../services/file_picker_service.dart';
 import '../theme/app_theme.dart';
 import '../widgets/audio_tile_widget.dart';
@@ -29,6 +28,8 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   int _currentIndex = 0;
+  bool _isMultiSelectMode = false;
+  final Set<String> _selectedAudioIds = {};
 
   // Controllers & Inputs
   final _searchController = TextEditingController();
@@ -40,6 +41,152 @@ class _HomeScreenState extends State<HomeScreen> {
   final _playlistNameController = TextEditingController();
   String _playlistVisibility = 'public';
   PlatformFile? _selectedPlaylistCover;
+
+  void _showBulkAddToPlaylistDialog(List<String> audioIds) {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final pProv = Provider.of<PlaylistProvider>(context, listen: false);
+
+    if (!auth.isLoggedIn) {
+      Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+      return;
+    }
+
+    pProv.fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 100);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: AppTheme.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return Consumer<PlaylistProvider>(
+          builder: (context, pProvider, _) {
+            return SafeArea(
+              child: Container(
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Add ${audioIds.length} Song(s) to Playlist',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    if (pProvider.isLoadingMy)
+                      const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
+                    else if (pProvider.myPlaylists.isEmpty)
+                      const Center(
+                        child: Text(
+                          'No personal playlists found. Create one first!',
+                          style: TextStyle(color: Colors.grey),
+                        ),
+                      )
+                    else
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: pProvider.myPlaylists.length,
+                          itemBuilder: (context, index) {
+                            final pl = pProvider.myPlaylists[index];
+                            return ListTile(
+                              leading: const Icon(Icons.playlist_add, color: AppTheme.primaryAccent),
+                              title: Text(pl.name, style: const TextStyle(color: Colors.white)),
+                              subtitle: Text(
+                                'Visibility: ${pl.visibility.toUpperCase()}',
+                                style: const TextStyle(color: Colors.grey, fontSize: 12),
+                              ),
+                              onTap: () async {
+                                Navigator.pop(ctx);
+                                final success = await pProvider.bulkAddAudioToPlaylist(
+                                  token: auth.token!,
+                                  playlistId: pl.id,
+                                  audioIds: audioIds,
+                                );
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        success
+                                            ? 'Added ${audioIds.length} track(s) to "${pl.name}"'
+                                            : (pProvider.errorMessage ?? 'Failed to add tracks to playlist'),
+                                      ),
+                                    ),
+                                  );
+                                  setState(() {
+                                    _isMultiSelectMode = false;
+                                    _selectedAudioIds.clear();
+                                  });
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  void _confirmBulkDelete(List<String> audioIds) {
+    final auth = Provider.of<AuthProvider>(context, listen: false);
+    final audioProv = Provider.of<AudioProvider>(context, listen: false);
+
+    if (!auth.isLoggedIn) return;
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardBg,
+        title: const Text('Bulk Delete Audios', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to delete ${audioIds.length} track(s)? Only audios uploaded by you will be deleted. This action cannot be undone.',
+          style: const TextStyle(color: Colors.grey),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final success = await audioProv.bulkDeleteAudios(
+                token: auth.token!,
+                audioIds: audioIds,
+              );
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      success
+                          ? 'Deleted ${audioIds.length} audio(s) successfully'
+                          : (audioProv.errorMessage ?? 'Failed to delete audios'),
+                    ),
+                  ),
+                );
+                setState(() {
+                  _isMultiSelectMode = false;
+                  _selectedAudioIds.clear();
+                });
+              }
+            },
+            child: const Text('Delete All', style: TextStyle(color: Colors.white)),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -435,6 +582,26 @@ class _HomeScreenState extends State<HomeScreen> {
                                 playlistQueue: audioProv.publicAudios,
                                 index: index,
                                 onFetchMore: () => audioProv.loadMorePublicAudios(),
+                                isMultiSelectMode: _isMultiSelectMode,
+                                isMultiSelected: _selectedAudioIds.contains(song.id),
+                                onToggleSelect: () {
+                                  setState(() {
+                                    if (_selectedAudioIds.contains(song.id)) {
+                                      _selectedAudioIds.remove(song.id);
+                                      if (_selectedAudioIds.isEmpty) {
+                                        _isMultiSelectMode = false;
+                                      }
+                                    } else {
+                                      _selectedAudioIds.add(song.id);
+                                    }
+                                  });
+                                },
+                                onLongPress: () {
+                                  setState(() {
+                                    _isMultiSelectMode = true;
+                                    _selectedAudioIds.add(song.id);
+                                  });
+                                },
                               );
                             },
                           ),
@@ -901,12 +1068,33 @@ class _HomeScreenState extends State<HomeScreen> {
                           physics: const NeverScrollableScrollPhysics(),
                           itemCount: audioProv.myAudios.length,
                           itemBuilder: (context, index) {
+                            final audioItem = audioProv.myAudios[index];
                             return AudioTileWidget(
-                              audio: audioProv.myAudios[index],
+                              audio: audioItem,
                               audioHandler: widget.audioHandler,
                               playlistQueue: audioProv.myAudios,
                               index: index,
                               onFetchMore: () => audioProv.loadMoreMyAudios(auth.token!),
+                              isMultiSelectMode: _isMultiSelectMode,
+                              isMultiSelected: _selectedAudioIds.contains(audioItem.id),
+                              onToggleSelect: () {
+                                setState(() {
+                                  if (_selectedAudioIds.contains(audioItem.id)) {
+                                    _selectedAudioIds.remove(audioItem.id);
+                                    if (_selectedAudioIds.isEmpty) {
+                                      _isMultiSelectMode = false;
+                                    }
+                                  } else {
+                                    _selectedAudioIds.add(audioItem.id);
+                                  }
+                                });
+                              },
+                              onLongPress: () {
+                                setState(() {
+                                  _isMultiSelectMode = true;
+                                  _selectedAudioIds.add(audioItem.id);
+                                });
+                              },
                             );
                           },
                         ),
@@ -998,41 +1186,78 @@ class _HomeScreenState extends State<HomeScreen> {
 
     return Scaffold(
       backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        title: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(6),
-              child: Image.asset(
-                'logo/TuneWorld.png',
-                height: 32,
-                width: 32,
-                fit: BoxFit.cover,
-                errorBuilder: (_, __, ___) => const Icon(
-                  Icons.graphic_eq_rounded,
-                  color: AppTheme.primaryAccent,
-                ),
+      appBar: _isMultiSelectMode
+          ? AppBar(
+              backgroundColor: AppTheme.cardBg,
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () {
+                  setState(() {
+                    _isMultiSelectMode = false;
+                    _selectedAudioIds.clear();
+                  });
+                },
               ),
+              title: Text(
+                '${_selectedAudioIds.length} Selected',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    final audioProv = Provider.of<AudioProvider>(context, listen: false);
+                    final currentList = _currentIndex == 0 ? audioProv.publicAudios : audioProv.myAudios;
+                    setState(() {
+                      _selectedAudioIds.addAll(currentList.map((a) => a.id));
+                    });
+                  },
+                  child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedAudioIds.clear();
+                    });
+                  },
+                  child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
+                ),
+              ],
+            )
+          : AppBar(
+              title: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(6),
+                    child: Image.asset(
+                      'logo/TuneWorld.png',
+                      height: 32,
+                      width: 32,
+                      fit: BoxFit.cover,
+                      errorBuilder: (_, __, ___) => const Icon(
+                        Icons.graphic_eq_rounded,
+                        color: AppTheme.primaryAccent,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  const Text(
+                    'TuneWorld',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                  ),
+                ],
+              ),
+              actions: [
+                if (!auth.isLoggedIn && !auth.isVerifying)
+                  TextButton.icon(
+                    onPressed: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                    },
+                    icon: const Icon(Icons.login, color: AppTheme.primaryAccent, size: 18),
+                    label: const Text('Login', style: TextStyle(color: AppTheme.primaryAccent)),
+                  ),
+              ],
             ),
-            const SizedBox(width: 10),
-            const Text(
-              'TuneWorld',
-              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
-            ),
-          ],
-        ),
-        actions: [
-          if (!auth.isLoggedIn && !auth.isVerifying)
-            TextButton.icon(
-              onPressed: () {
-                Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
-              },
-              icon: const Icon(Icons.login, color: AppTheme.primaryAccent, size: 18),
-              label: const Text('Login', style: TextStyle(color: AppTheme.primaryAccent)),
-            ),
-        ],
-      ),
       body: Stack(
         children: [
           IndexedStack(
@@ -1045,6 +1270,53 @@ class _HomeScreenState extends State<HomeScreen> {
               _buildProfileTab(),
             ],
           ),
+          if (_isMultiSelectMode)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 65,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardBg,
+                  border: const Border(top: BorderSide(color: Colors.white12)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _selectedAudioIds.isEmpty
+                            ? null
+                            : () => _showBulkAddToPlaylistDialog(_selectedAudioIds.toList()),
+                        icon: const Icon(Icons.playlist_add, color: Colors.black),
+                        label: const Text('Add to Playlist', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                      ),
+                    ),
+                    if (auth.isLoggedIn) ...[
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: ElevatedButton.icon(
+                          onPressed: _selectedAudioIds.isEmpty
+                              ? null
+                              : () => _confirmBulkDelete(_selectedAudioIds.toList()),
+                          icon: const Icon(Icons.delete_outline, color: Colors.white),
+                          label: const Text('Bulk Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
           // Floating Mini Player Widget at the bottom
           Positioned(
             left: 0,
@@ -1054,7 +1326,7 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ],
       ),
-      floatingActionButton: _currentIndex == 1 && auth.isLoggedIn
+      floatingActionButton: _currentIndex == 1 && auth.isLoggedIn && !_isMultiSelectMode
           ? FloatingActionButton.extended(
               onPressed: _showCreatePlaylistDialog,
               backgroundColor: AppTheme.primaryAccent,
@@ -1067,6 +1339,10 @@ class _HomeScreenState extends State<HomeScreen> {
         onTap: (idx) {
           setState(() {
             _currentIndex = idx;
+            if (_isMultiSelectMode) {
+              _isMultiSelectMode = false;
+              _selectedAudioIds.clear();
+            }
           });
           if (idx == 1 && auth.isLoggedIn) {
             Provider.of<PlaylistProvider>(context, listen: false).fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 50);

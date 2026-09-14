@@ -18,6 +18,8 @@ class DownloadsScreen extends StatefulWidget {
 class _DownloadsScreenState extends State<DownloadsScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  bool _isMultiSelectMode = false;
+  final Set<String> _selectedAudioIds = {};
 
   @override
   void initState() {
@@ -33,37 +35,112 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
     super.dispose();
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text(
-          'Downloaded Music',
-          style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+  void _bulkDeleteDownloaded(List<String> audioIds) {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.cardBg,
+        title: const Text('Delete Offline Copies', style: TextStyle(color: Colors.white)),
+        content: Text(
+          'Are you sure you want to remove ${audioIds.length} track(s) from offline downloads?',
+          style: const TextStyle(color: Colors.grey),
         ),
         actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.grey),
-            onPressed: () {
-              Provider.of<DownloadProvider>(context, listen: false).fetchDownloadedTracks();
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+            onPressed: () async {
+              Navigator.pop(ctx);
+              final dlProv = Provider.of<DownloadProvider>(context, listen: false);
+              for (final id in audioIds) {
+                await dlProv.deleteTrack(id);
+              }
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Removed ${audioIds.length} offline track(s)')),
+                );
+                setState(() {
+                  _isMultiSelectMode = false;
+                  _selectedAudioIds.clear();
+                });
+              }
             },
+            child: const Text('Delete All', style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
-      body: Consumer<DownloadProvider>(
-        builder: (context, downloadProv, child) {
-          final allDownloaded = downloadProv.downloadedTracks;
+    );
+  }
 
-          final filtered = allDownloaded.where((audio) {
-            if (_searchQuery.isEmpty) return true;
-            return audio.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-                (audio.userName != null && audio.userName!.toLowerCase().contains(_searchQuery.toLowerCase()));
-          }).toList();
+  @override
+  Widget build(BuildContext context) {
+    final downloadProv = Provider.of<DownloadProvider>(context);
+    final allDownloaded = downloadProv.downloadedTracks;
+    final filtered = allDownloaded.where((audio) {
+      if (_searchQuery.isEmpty) return true;
+      return audio.name.toLowerCase().contains(_searchQuery.toLowerCase()) ||
+          (audio.userName != null && audio.userName!.toLowerCase().contains(_searchQuery.toLowerCase()));
+    }).toList();
 
-          return Column(
+    return Scaffold(
+      backgroundColor: AppTheme.background,
+      appBar: _isMultiSelectMode
+          ? AppBar(
+              backgroundColor: AppTheme.cardBg,
+              leading: IconButton(
+                icon: const Icon(Icons.close, color: Colors.white),
+                onPressed: () {
+                  setState(() {
+                    _isMultiSelectMode = false;
+                    _selectedAudioIds.clear();
+                  });
+                },
+              ),
+              title: Text(
+                '${_selectedAudioIds.length} Selected',
+                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedAudioIds.addAll(filtered.map((a) => a.id));
+                    });
+                  },
+                  child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _selectedAudioIds.clear();
+                    });
+                  },
+                  child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
+                ),
+              ],
+            )
+          : AppBar(
+              backgroundColor: Colors.transparent,
+              elevation: 0,
+              title: const Text(
+                'Downloaded Music',
+                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.refresh, color: Colors.grey),
+                  onPressed: () {
+                    Provider.of<DownloadProvider>(context, listen: false).fetchDownloadedTracks();
+                  },
+                ),
+              ],
+            ),
+      body: Stack(
+        children: [
+          Column(
             children: [
               // Search Bar
               Padding(
@@ -148,12 +225,11 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                         fontWeight: FontWeight.w500,
                       ),
                     ),
-                    if (filtered.isNotEmpty)
+                    if (filtered.isNotEmpty && !_isMultiSelectMode)
                       TextButton.icon(
                         onPressed: () {
                           widget.audioHandler.playTrack(filtered[0], queueList: filtered, index: 0);
                         },
-
                         icon: const Icon(Icons.play_circle_fill, color: AppTheme.primaryAccent),
                         label: const Text('Play All', style: TextStyle(color: AppTheme.primaryAccent)),
                       ),
@@ -191,13 +267,67 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
                                 onDeleteDownloaded: () {
                                   _confirmDeleteDownloaded(context, audio);
                                 },
+                                isMultiSelectMode: _isMultiSelectMode,
+                                isMultiSelected: _selectedAudioIds.contains(audio.id),
+                                onToggleSelect: () {
+                                  setState(() {
+                                    if (_selectedAudioIds.contains(audio.id)) {
+                                      _selectedAudioIds.remove(audio.id);
+                                      if (_selectedAudioIds.isEmpty) {
+                                        _isMultiSelectMode = false;
+                                      }
+                                    } else {
+                                      _selectedAudioIds.add(audio.id);
+                                    }
+                                  });
+                                },
+                                onLongPress: () {
+                                  setState(() {
+                                    _isMultiSelectMode = true;
+                                    _selectedAudioIds.add(audio.id);
+                                  });
+                                },
                               );
                             },
                           ),
               ),
             ],
-          );
-        },
+          ),
+          if (_isMultiSelectMode)
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 10,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: AppTheme.cardBg,
+                  border: const Border(top: BorderSide(color: Colors.white12)),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.5),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _selectedAudioIds.isEmpty
+                            ? null
+                            : () => _bulkDeleteDownloaded(_selectedAudioIds.toList()),
+                        icon: const Icon(Icons.delete_outline, color: Colors.white),
+                        label: const Text('Delete Offline Files', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

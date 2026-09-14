@@ -262,6 +262,27 @@ class PlaylistProvider extends ChangeNotifier {
     }
   }
 
+  // Bulk Add Audio to Playlist
+  Future<bool> bulkAddAudioToPlaylist({
+    required String token,
+    required String playlistId,
+    required List<String> audioIds,
+  }) async {
+    _errorMessage = null;
+    try {
+      await ApiService.bulkAddAudioToPlaylist(
+        token: token,
+        playlistId: playlistId,
+        audioIds: audioIds,
+      );
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
+
   // Fetch Playlist Details and its Songs
   Future<void> fetchPlaylistDetails({
     String? token,

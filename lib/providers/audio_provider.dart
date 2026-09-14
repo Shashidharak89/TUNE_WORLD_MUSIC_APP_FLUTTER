@@ -296,5 +296,25 @@ class AudioProvider extends ChangeNotifier {
       return false;
     }
   }
+
+  // Bulk Delete Audios
+  Future<bool> bulkDeleteAudios({
+    required String token,
+    required List<String> audioIds,
+  }) async {
+    _errorMessage = null;
+    try {
+      await ApiService.bulkDeleteAudios(token: token, audioIds: audioIds);
+      final idSet = Set<String>.from(audioIds);
+      _myAudios.removeWhere((a) => idSet.contains(a.id));
+      _publicAudios.removeWhere((a) => idSet.contains(a.id));
+      notifyListeners();
+      return true;
+    } catch (e) {
+      _errorMessage = e.toString().replaceAll('Exception: ', '');
+      notifyListeners();
+      return false;
+    }
+  }
 }
 

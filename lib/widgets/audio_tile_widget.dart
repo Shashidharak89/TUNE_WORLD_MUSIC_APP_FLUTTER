@@ -25,6 +25,10 @@ class AudioTileWidget extends StatelessWidget {
   final bool? isPlaylistOwner;
   final bool isDownloadedScreen;
   final VoidCallback? onDeleteDownloaded;
+  final bool isMultiSelectMode;
+  final bool isMultiSelected;
+  final VoidCallback? onToggleSelect;
+  final VoidCallback? onLongPress;
 
   const AudioTileWidget({
     super.key,
@@ -37,6 +41,10 @@ class AudioTileWidget extends StatelessWidget {
     this.isPlaylistOwner,
     this.isDownloadedScreen = false,
     this.onDeleteDownloaded,
+    this.isMultiSelectMode = false,
+    this.isMultiSelected = false,
+    this.onToggleSelect,
+    this.onLongPress,
   });
 
   void _showOptionsMenu(BuildContext context) {
@@ -608,21 +616,29 @@ class AudioTileWidget extends StatelessWidget {
           builder: (context, stateSnap) {
             final isPlaying = isSelected && (stateSnap.data?.playing ?? false);
 
+            final tileSelected = isMultiSelectMode ? isMultiSelected : isSelected;
+
             return AnimatedContainer(
               duration: const Duration(milliseconds: 250),
               margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
               decoration: BoxDecoration(
-                color: isSelected
-                    ? AppTheme.primaryAccent.withValues(alpha: 0.12)
-                    : AppTheme.cardBg,
+                color: isMultiSelectMode
+                    ? (isMultiSelected
+                        ? AppTheme.primaryAccent.withValues(alpha: 0.2)
+                        : AppTheme.cardBg)
+                    : (isSelected
+                        ? AppTheme.primaryAccent.withValues(alpha: 0.12)
+                        : AppTheme.cardBg),
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(
-                  color: isSelected
-                      ? AppTheme.primaryAccent
-                      : Colors.white.withValues(alpha: 0.05),
-                  width: isSelected ? 1.5 : 1,
+                  color: isMultiSelectMode
+                      ? (isMultiSelected ? AppTheme.primaryAccent : Colors.white12)
+                      : (isSelected
+                          ? AppTheme.primaryAccent
+                          : Colors.white.withValues(alpha: 0.05)),
+                  width: tileSelected ? 1.5 : 1,
                 ),
-                boxShadow: isSelected
+                boxShadow: tileSelected
                     ? [
                         BoxShadow(
                           color: AppTheme.primaryAccent.withValues(alpha: 0.25),
@@ -634,44 +650,62 @@ class AudioTileWidget extends StatelessWidget {
               ),
               child: ListTile(
                 contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                leading: ClipRRect(
-                  borderRadius: BorderRadius.circular(10),
-                  child: Stack(
-                    alignment: Alignment.center,
-                    children: [
-                      Container(
-                        width: 50,
-                        height: 50,
-                        color: AppTheme.purpleAccent.withValues(alpha: 0.2),
-                        child: audio.thumbnailImageUrl.isNotEmpty
-                            ? Image.network(
-                                audio.thumbnailImageUrl,
-                                fit: BoxFit.cover,
-                                errorBuilder: (_, __, ___) => const Icon(
-                                  Icons.music_note,
-                                  color: AppTheme.primaryAccent,
-                                ),
-                              )
-                            : const Icon(
-                                Icons.music_note,
-                                color: AppTheme.primaryAccent,
-                              ),
-                      ),
-                      if (isSelected)
-                        Container(
-                          width: 50,
-                          height: 50,
-                          color: Colors.black.withValues(alpha: 0.45),
-                          child: Icon(
-                            isPlaying
-                                ? Icons.graphic_eq_rounded
-                                : Icons.play_arrow_rounded,
-                            color: AppTheme.primaryAccent,
-                            size: 28,
+                leading: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (isMultiSelectMode)
+                      Padding(
+                        padding: const EdgeInsets.only(right: 8.0),
+                        child: Checkbox(
+                          value: isMultiSelected,
+                          activeColor: AppTheme.primaryAccent,
+                          checkColor: Colors.black,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(4),
                           ),
+                          onChanged: (_) => onToggleSelect?.call(),
                         ),
-                    ],
-                  ),
+                      ),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          Container(
+                            width: 50,
+                            height: 50,
+                            color: AppTheme.purpleAccent.withValues(alpha: 0.2),
+                            child: audio.thumbnailImageUrl.isNotEmpty
+                                ? Image.network(
+                                    audio.thumbnailImageUrl,
+                                    fit: BoxFit.cover,
+                                    errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.music_note,
+                                      color: AppTheme.primaryAccent,
+                                    ),
+                                  )
+                                : const Icon(
+                                    Icons.music_note,
+                                    color: AppTheme.primaryAccent,
+                                  ),
+                          ),
+                          if (isSelected)
+                            Container(
+                              width: 50,
+                              height: 50,
+                              color: Colors.black.withValues(alpha: 0.45),
+                              child: Icon(
+                                isPlaying
+                                    ? Icons.graphic_eq_rounded
+                                    : Icons.play_arrow_rounded,
+                                color: AppTheme.primaryAccent,
+                                size: 28,
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
                 title: Row(
                   children: [
@@ -681,13 +715,13 @@ class AudioTileWidget extends StatelessWidget {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          fontWeight: isSelected ? FontWeight.bold : FontWeight.w600,
+                          fontWeight: tileSelected ? FontWeight.bold : FontWeight.w600,
                           fontSize: 15,
-                          color: isSelected ? AppTheme.primaryAccent : Colors.white,
+                          color: tileSelected ? AppTheme.primaryAccent : Colors.white,
                         ),
                       ),
                     ),
-                    if (isSelected)
+                    if (isSelected && !isMultiSelectMode)
                       Container(
                         margin: const EdgeInsets.only(left: 6),
                         padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -715,7 +749,7 @@ class AudioTileWidget extends StatelessWidget {
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
                           fontSize: 13,
-                          color: isSelected ? Colors.white70 : Colors.white60,
+                          color: tileSelected ? Colors.white70 : Colors.white60,
                         ),
                       ),
                     ),
@@ -741,72 +775,85 @@ class AudioTileWidget extends StatelessWidget {
                       ),
                   ],
                 ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        isSelected
-                            ? (isPlaying
-                                ? Icons.pause_circle_filled_rounded
-                                : Icons.play_circle_fill_rounded)
-                            : Icons.play_arrow_rounded,
-                        color: isSelected ? AppTheme.primaryAccent : Colors.white70,
-                        size: 28,
-                      ),
-                      onPressed: () {
-                        if (isSelected) {
-                          if (isPlaying) {
-                            audioHandler.pause();
-                          } else {
-                            audioHandler.play();
-                          }
-                        } else {
-                          audioHandler.playTrack(
-                            audio,
-                            queueList: playlistQueue,
-                            index: index,
-                            fetchMoreCallback: onFetchMore != null
-                                ? () async {
-                                    final success = await onFetchMore!();
-                                    if (success) {
-                                      audioHandler.appendQueue(playlistQueue);
-                                    }
-                                    return success;
-                                  }
-                                : null,
-                          );
-                        }
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.more_vert, color: Colors.white70),
-                      onPressed: () => _showOptionsMenu(context),
-                    ),
-                  ],
-                ),
-                onTap: () {
-                  if (isSelected) {
-                    if (isPlaying) {
-                      audioHandler.pause();
-                    } else {
-                      audioHandler.play();
-                    }
-                  } else {
-                    audioHandler.playTrack(
-                      audio,
-                      queueList: playlistQueue,
-                      index: index,
-                      fetchMoreCallback: onFetchMore != null
-                          ? () async {
-                              final success = await onFetchMore!();
-                              if (success) {
-                                audioHandler.appendQueue(playlistQueue);
+                trailing: isMultiSelectMode
+                    ? null
+                    : Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          IconButton(
+                            icon: Icon(
+                              isSelected
+                                  ? (isPlaying
+                                      ? Icons.pause_circle_filled_rounded
+                                      : Icons.play_circle_fill_rounded)
+                                  : Icons.play_arrow_rounded,
+                              color: isSelected ? AppTheme.primaryAccent : Colors.white70,
+                              size: 28,
+                            ),
+                            onPressed: () {
+                              if (isSelected) {
+                                if (isPlaying) {
+                                  audioHandler.pause();
+                                } else {
+                                  audioHandler.play();
+                                }
+                              } else {
+                                audioHandler.playTrack(
+                                  audio,
+                                  queueList: playlistQueue,
+                                  index: index,
+                                  fetchMoreCallback: onFetchMore != null
+                                      ? () async {
+                                          final success = await onFetchMore!();
+                                          if (success) {
+                                            audioHandler.appendQueue(playlistQueue);
+                                          }
+                                          return success;
+                                        }
+                                      : null,
+                                );
                               }
-                              return success;
-                            }
-                          : null,
-                    );
+                            },
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.more_vert, color: Colors.white70),
+                            onPressed: () => _showOptionsMenu(context),
+                          ),
+                        ],
+                      ),
+                onTap: () {
+                  if (isMultiSelectMode) {
+                    onToggleSelect?.call();
+                  } else {
+                    if (isSelected) {
+                      if (isPlaying) {
+                        audioHandler.pause();
+                      } else {
+                        audioHandler.play();
+                      }
+                    } else {
+                      audioHandler.playTrack(
+                        audio,
+                        queueList: playlistQueue,
+                        index: index,
+                        fetchMoreCallback: onFetchMore != null
+                            ? () async {
+                                final success = await onFetchMore!();
+                                if (success) {
+                                  audioHandler.appendQueue(playlistQueue);
+                                }
+                                return success;
+                              }
+                            : null,
+                      );
+                    }
+                  }
+                },
+                onLongPress: () {
+                  if (onLongPress != null) {
+                    onLongPress!();
+                  } else if (isMultiSelectMode) {
+                    onToggleSelect?.call();
                   }
                 },
               ),
