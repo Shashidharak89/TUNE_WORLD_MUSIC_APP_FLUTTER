@@ -52,6 +52,14 @@ class ApiService {
     return headers;
   }
 
+  static Map<String, String> _authHeaders(String? token) {
+    final headers = <String, String>{};
+    if (token != null && token.isNotEmpty) {
+      headers['Authorization'] = 'Bearer $token';
+    }
+    return headers;
+  }
+
   static Future<http.MultipartFile> _buildMultipartFile(
       String fieldName, PlatformFile platformFile) async {
     final bytes = await platformFile.readAsBytes();
@@ -195,7 +203,7 @@ class ApiService {
     );
   }
 
-  // Chunk-by-chunk file upload implementation (~5MB per chunk)
+  // Chunk-by-chunk file upload implementation (~1MB per chunk for Nginx compatibility)
   static Future<AudioModel> uploadAudioChunked({
     required String token,
     required String name,
@@ -207,20 +215,36 @@ class ApiService {
     final audioBytes = await audioFile.readAsBytes();
     final totalBytes = audioBytes.length;
 
-    // Fixed chunk size: 5MB (5 * 1024 * 1024 bytes)
-    const chunkSize = 5 * 1024 * 1024;
+    if (totalBytes == 0) {
+      throw Exception('Audio file is empty or cannot be read.');
+    }
+
+    // 1MB chunk size guaranteed to pass through Nginx & backend body size limits
+    const chunkSize = 1 * 1024 * 1024;
     final totalChunks = (totalBytes / chunkSize).ceil();
     final uploadId = 'upload_${DateTime.now().millisecondsSinceEpoch}_${Random().nextInt(10000)}';
 
-    // Upload chunks sequentially chunk-by-chunk
+    // Upload chunks sequentially chunk-by-chunk with streaming progress
     for (int i = 0; i < totalChunks; i++) {
       final start = i * chunkSize;
       final end = (start + chunkSize < totalBytes) ? start + chunkSize : totalBytes;
       final chunkBytes = audioBytes.sublist(start, end);
 
       final uri = Uri.parse('$baseUrl/audio/upload-chunk');
-      final request = http.MultipartRequest('POST', uri);
-      request.headers.addAll(_headers(token));
+      final request = MultipartRequestWithProgress(
+        'POST',
+        uri,
+        onProgress: (chunkBytesSent, chunkTotal) {
+          if (onProgress != null) {
+            final currentTotalSent = start + chunkBytesSent;
+            final safeSent = currentTotalSent > totalBytes ? totalBytes : currentTotalSent;
+            onProgress(safeSent, totalBytes);
+          }
+        },
+      );
+
+      // Use Authorization headers only (Do NOT set Content-Type: application/json on MultipartRequest!)
+      request.headers.addAll(_authHeaders(token));
       request.fields['uploadId'] = uploadId;
       request.fields['chunkIndex'] = i.toString();
       request.fields['totalChunks'] = totalChunks.toString();
@@ -243,11 +267,6 @@ class ApiService {
 
       if (response.statusCode != 200 || data['success'] != true) {
         throw Exception(data['message'] ?? 'Failed to upload chunk ${i + 1}');
-      }
-
-      // Report chunked upload progress after each chunk completes
-      if (onProgress != null) {
-        onProgress(end, totalBytes);
       }
     }
 
