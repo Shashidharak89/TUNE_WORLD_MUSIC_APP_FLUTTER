@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'package:audio_service/audio_service.dart';
 import 'package:just_audio/just_audio.dart';
@@ -45,10 +46,10 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
       _broadcastState();
     });
 
-    _player.playerStateStream.listen((state) {
+    _player.playerStateStream.listen((state) async {
       _broadcastState();
       if (state.processingState == ProcessingState.completed) {
-        skipToNext();
+        await skipToNext();
       }
     });
 
@@ -189,11 +190,13 @@ class TuneWorldAudioHandler extends BaseAudioHandler with QueueHandler, SeekHand
     mediaItem.add(item);
     
     try {
-      await _player.stop();
-      if (currentAudio.audioUrl.startsWith('http://') || currentAudio.audioUrl.startsWith('https://')) {
-        await _player.setUrl(currentAudio.audioUrl);
+      final url = currentAudio.audioUrl;
+      if (url.startsWith('http://') || url.startsWith('https://')) {
+        await _player.setUrl(url);
+      } else if (File(url).existsSync()) {
+        await _player.setFilePath(url);
       } else {
-        await _player.setFilePath(currentAudio.audioUrl);
+        await _player.setUrl(url);
       }
       await _player.play();
     } catch (e) {

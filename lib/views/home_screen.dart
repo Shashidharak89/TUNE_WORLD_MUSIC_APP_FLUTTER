@@ -626,7 +626,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     ),
                   ),
 
-                const SizedBox(height: 80),
+                SizedBox(height: _isMultiSelectMode ? 160 : 80),
               ],
             ),
           ),
@@ -1118,7 +1118,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                       ],
                     ),
-          const SizedBox(height: 80),
+          SizedBox(height: _isMultiSelectMode ? 160 : 80),
         ],
       ),
     );
@@ -1184,177 +1184,217 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final auth = Provider.of<AuthProvider>(context);
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: _isMultiSelectMode
-          ? AppBar(
-              backgroundColor: AppTheme.cardBg,
-              leading: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    _isMultiSelectMode = false;
-                    _selectedAudioIds.clear();
-                  });
-                },
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (bool didPop, dynamic result) async {
+        if (didPop) return;
+        if (_isMultiSelectMode) {
+          setState(() {
+            _isMultiSelectMode = false;
+            _selectedAudioIds.clear();
+          });
+          return;
+        }
+
+        final shouldExit = await showDialog<bool>(
+          context: context,
+          builder: (ctx) => AlertDialog(
+            backgroundColor: AppTheme.cardBg,
+            title: const Text('Exit TuneWorld?', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+            content: const Text(
+              'Are you sure you want to exit the application?',
+              style: TextStyle(color: Colors.grey),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancel', style: TextStyle(color: Colors.grey)),
               ),
-              title: Text(
-                '${_selectedAudioIds.length} Selected',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+              ElevatedButton(
+                style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Exit', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
               ),
-              actions: [
-                TextButton(
+            ],
+          ),
+        );
+
+        if (shouldExit == true) {
+          exit(0);
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        appBar: _isMultiSelectMode
+            ? AppBar(
+                backgroundColor: AppTheme.cardBg,
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
                   onPressed: () {
-                    final audioProv = Provider.of<AudioProvider>(context, listen: false);
-                    final currentList = _currentIndex == 0 ? audioProv.publicAudios : audioProv.myAudios;
                     setState(() {
-                      _selectedAudioIds.addAll(currentList.map((a) => a.id));
-                    });
-                  },
-                  child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
-                ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
+                      _isMultiSelectMode = false;
                       _selectedAudioIds.clear();
                     });
                   },
-                  child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
                 ),
-              ],
-            )
-          : AppBar(
-              title: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: Image.asset(
-                      'logo/TuneWorld.png',
-                      height: 32,
-                      width: 32,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Icon(
-                        Icons.graphic_eq_rounded,
-                        color: AppTheme.primaryAccent,
-                      ),
-                    ),
+                title: Text(
+                  '${_selectedAudioIds.length} Selected',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      final audioProv = Provider.of<AudioProvider>(context, listen: false);
+                      final currentList = _currentIndex == 0 ? audioProv.publicAudios : audioProv.myAudios;
+                      setState(() {
+                        _selectedAudioIds.addAll(currentList.map((a) => a.id));
+                      });
+                    },
+                    child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
                   ),
-                  const SizedBox(width: 10),
-                  const Text(
-                    'TuneWorld',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedAudioIds.clear();
+                      });
+                    },
+                    child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
                   ),
                 ],
-              ),
-              actions: [
-                if (!auth.isLoggedIn && !auth.isVerifying)
-                  TextButton.icon(
-                    onPressed: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
-                    },
-                    icon: const Icon(Icons.login, color: AppTheme.primaryAccent, size: 18),
-                    label: const Text('Login', style: TextStyle(color: AppTheme.primaryAccent)),
-                  ),
-              ],
-            ),
-      body: Stack(
-        children: [
-          IndexedStack(
-            index: _currentIndex,
-            children: [
-              _buildDiscoverTab(),
-              _buildPlaylistsTab(),
-              DownloadsScreen(audioHandler: widget.audioHandler),
-              _buildUploadTab(),
-              _buildProfileTab(),
-            ],
-          ),
-          if (_isMultiSelectMode)
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 65,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppTheme.cardBg,
-                  border: const Border(top: BorderSide(color: Colors.white12)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.5),
-                      blurRadius: 10,
-                      offset: const Offset(0, -2),
+              )
+            : AppBar(
+                title: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: Image.asset(
+                        'logo/TuneWorld.png',
+                        height: 32,
+                        width: 32,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.graphic_eq_rounded,
+                          color: AppTheme.primaryAccent,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'TuneWorld',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
                     ),
                   ],
                 ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _selectedAudioIds.isEmpty
-                            ? null
-                            : () => _showBulkAddToPlaylistDialog(_selectedAudioIds.toList()),
-                        icon: const Icon(Icons.playlist_add, color: Colors.black),
-                        label: const Text('Add to Playlist', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-                        style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
-                      ),
+                actions: [
+                  if (!auth.isLoggedIn && !auth.isVerifying)
+                    TextButton.icon(
+                      onPressed: () {
+                        Navigator.push(context, MaterialPageRoute(builder: (_) => const AuthScreen()));
+                      },
+                      icon: const Icon(Icons.login, color: AppTheme.primaryAccent, size: 18),
+                      label: const Text('Login', style: TextStyle(color: AppTheme.primaryAccent)),
                     ),
-                    if (auth.isLoggedIn) ...[
-                      const SizedBox(width: 12),
+                ],
+              ),
+        body: Stack(
+          children: [
+            IndexedStack(
+              index: _currentIndex,
+              children: [
+                _buildDiscoverTab(),
+                _buildPlaylistsTab(),
+                DownloadsScreen(audioHandler: widget.audioHandler),
+                _buildUploadTab(),
+                _buildProfileTab(),
+              ],
+            ),
+            if (_isMultiSelectMode)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 65,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: AppTheme.cardBg,
+                    border: const Border(top: BorderSide(color: Colors.white12)),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: 0.5),
+                        blurRadius: 10,
+                        offset: const Offset(0, -2),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: [
                       Expanded(
                         child: ElevatedButton.icon(
                           onPressed: _selectedAudioIds.isEmpty
                               ? null
-                              : () => _confirmBulkDelete(_selectedAudioIds.toList()),
-                          icon: const Icon(Icons.delete_outline, color: Colors.white),
-                          label: const Text('Bulk Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                          style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                              : () => _showBulkAddToPlaylistDialog(_selectedAudioIds.toList()),
+                          icon: const Icon(Icons.playlist_add, color: Colors.black),
+                          label: const Text('Add to Playlist', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+                          style: ElevatedButton.styleFrom(backgroundColor: AppTheme.primaryAccent),
                         ),
                       ),
+                      if (auth.isLoggedIn) ...[
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _selectedAudioIds.isEmpty
+                                ? null
+                                : () => _confirmBulkDelete(_selectedAudioIds.toList()),
+                            icon: const Icon(Icons.delete_outline, color: Colors.white),
+                            label: const Text('Bulk Delete', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                            style: ElevatedButton.styleFrom(backgroundColor: Colors.redAccent),
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
+            // Floating Mini Player Widget at the bottom
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: MiniPlayerWidget(audioHandler: widget.audioHandler),
             ),
-          // Floating Mini Player Widget at the bottom
-          Positioned(
-            left: 0,
-            right: 0,
-            bottom: 0,
-            child: MiniPlayerWidget(audioHandler: widget.audioHandler),
-          ),
-        ],
-      ),
-      floatingActionButton: _currentIndex == 1 && auth.isLoggedIn && !_isMultiSelectMode
-          ? FloatingActionButton.extended(
-              onPressed: _showCreatePlaylistDialog,
-              backgroundColor: AppTheme.primaryAccent,
-              icon: const Icon(Icons.add, color: Colors.black),
-              label: const Text('Playlist', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
-            )
-          : null,
-      bottomNavigationBar: BottomNavigationBar(
-        currentIndex: _currentIndex,
-        onTap: (idx) {
-          setState(() {
-            _currentIndex = idx;
-            if (_isMultiSelectMode) {
-              _isMultiSelectMode = false;
-              _selectedAudioIds.clear();
+          ],
+        ),
+        floatingActionButton: _currentIndex == 1 && auth.isLoggedIn && !_isMultiSelectMode
+            ? FloatingActionButton.extended(
+                onPressed: _showCreatePlaylistDialog,
+                backgroundColor: AppTheme.primaryAccent,
+                icon: const Icon(Icons.add, color: Colors.black),
+                label: const Text('Playlist', style: TextStyle(color: Colors.black, fontWeight: FontWeight.bold)),
+              )
+            : null,
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _currentIndex,
+          onTap: (idx) {
+            setState(() {
+              _currentIndex = idx;
+              if (_isMultiSelectMode) {
+                _isMultiSelectMode = false;
+                _selectedAudioIds.clear();
+              }
+            });
+            if (idx == 1 && auth.isLoggedIn) {
+              Provider.of<PlaylistProvider>(context, listen: false).fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 50);
             }
-          });
-          if (idx == 1 && auth.isLoggedIn) {
-            Provider.of<PlaylistProvider>(context, listen: false).fetchMyPlaylists(token: auth.token!, page: 1, pageSize: 50);
-          }
-        },
-        items: const [
-          BottomNavigationBarItem(icon: Icon(Icons.explore_rounded), label: 'Discover'),
-          BottomNavigationBarItem(icon: Icon(Icons.queue_music_rounded), label: 'Playlists'),
-          BottomNavigationBarItem(icon: Icon(Icons.download_rounded), label: 'Downloads'),
-          BottomNavigationBarItem(icon: Icon(Icons.cloud_upload_rounded), label: 'Upload'),
-          BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
-        ],
+          },
+          items: const [
+            BottomNavigationBarItem(icon: Icon(Icons.explore_rounded), label: 'Discover'),
+            BottomNavigationBarItem(icon: Icon(Icons.queue_music_rounded), label: 'Playlists'),
+            BottomNavigationBarItem(icon: Icon(Icons.download_rounded), label: 'Downloads'),
+            BottomNavigationBarItem(icon: Icon(Icons.cloud_upload_rounded), label: 'Upload'),
+            BottomNavigationBarItem(icon: Icon(Icons.person_rounded), label: 'Profile'),
+          ],
+        ),
       ),
     );
   }

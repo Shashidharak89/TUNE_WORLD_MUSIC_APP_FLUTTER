@@ -85,179 +85,190 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
           (audio.userName != null && audio.userName!.toLowerCase().contains(_searchQuery.toLowerCase()));
     }).toList();
 
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      appBar: _isMultiSelectMode
-          ? AppBar(
-              backgroundColor: AppTheme.cardBg,
-              leading: IconButton(
-                icon: const Icon(Icons.close, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    _isMultiSelectMode = false;
-                    _selectedAudioIds.clear();
-                  });
-                },
-              ),
-              title: Text(
-                '${_selectedAudioIds.length} Selected',
-                style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
-              ),
-              actions: [
-                TextButton(
+    return PopScope(
+      canPop: !_isMultiSelectMode,
+      onPopInvokedWithResult: (bool didPop, dynamic result) {
+        if (didPop) return;
+        if (_isMultiSelectMode) {
+          setState(() {
+            _isMultiSelectMode = false;
+            _selectedAudioIds.clear();
+          });
+        }
+      },
+      child: Scaffold(
+        backgroundColor: AppTheme.background,
+        appBar: _isMultiSelectMode
+            ? AppBar(
+                backgroundColor: AppTheme.cardBg,
+                leading: IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
                   onPressed: () {
                     setState(() {
-                      _selectedAudioIds.addAll(filtered.map((a) => a.id));
-                    });
-                  },
-                  child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
-                ),
-                TextButton(
-                  onPressed: () {
-                    setState(() {
+                      _isMultiSelectMode = false;
                       _selectedAudioIds.clear();
                     });
                   },
-                  child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
                 ),
-              ],
-            )
-          : AppBar(
-              backgroundColor: Colors.transparent,
-              elevation: 0,
-              title: const Text(
-                'Downloaded Music',
-                style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                title: Text(
+                  '${_selectedAudioIds.length} Selected',
+                  style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedAudioIds.addAll(filtered.map((a) => a.id));
+                      });
+                    },
+                    child: const Text('Select All', style: TextStyle(color: AppTheme.primaryAccent)),
+                  ),
+                  TextButton(
+                    onPressed: () {
+                      setState(() {
+                        _selectedAudioIds.clear();
+                      });
+                    },
+                    child: const Text('Deselect All', style: TextStyle(color: Colors.grey)),
+                  ),
+                ],
+              )
+            : AppBar(
+                backgroundColor: Colors.transparent,
+                elevation: 0,
+                title: const Text(
+                  'Downloaded Music',
+                  style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                ),
+                actions: [
+                  IconButton(
+                    icon: const Icon(Icons.refresh, color: Colors.grey),
+                    onPressed: () {
+                      Provider.of<DownloadProvider>(context, listen: false).fetchDownloadedTracks();
+                    },
+                  ),
+                ],
               ),
-              actions: [
-                IconButton(
-                  icon: const Icon(Icons.refresh, color: Colors.grey),
-                  onPressed: () {
-                    Provider.of<DownloadProvider>(context, listen: false).fetchDownloadedTracks();
-                  },
-                ),
-              ],
-            ),
-      body: Stack(
-        children: [
-          Column(
-            children: [
-              // Search Bar
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: TextField(
-                  controller: _searchController,
-                  onChanged: (val) {
-                    setState(() {
-                      _searchQuery = val;
-                    });
-                  },
-                  style: const TextStyle(color: Colors.white),
-                  decoration: InputDecoration(
-                    hintText: 'Search offline downloads...',
-                    hintStyle: const TextStyle(color: Colors.grey),
-                    prefixIcon: const Icon(Icons.search, color: AppTheme.primaryAccent),
-                    suffixIcon: _searchQuery.isNotEmpty
-                        ? IconButton(
-                            icon: const Icon(Icons.clear, color: Colors.grey),
-                            onPressed: () {
-                              _searchController.clear();
-                              setState(() {
-                                _searchQuery = '';
-                              });
-                            },
-                          )
-                        : null,
-                    filled: true,
-                    fillColor: AppTheme.cardBg,
-                    contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      borderSide: BorderSide.none,
+        body: Stack(
+          children: [
+            Column(
+              children: [
+                // Search Bar
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (val) {
+                      setState(() {
+                        _searchQuery = val;
+                      });
+                    },
+                    style: const TextStyle(color: Colors.white),
+                    decoration: InputDecoration(
+                      hintText: 'Search offline downloads...',
+                      hintStyle: const TextStyle(color: Colors.grey),
+                      prefixIcon: const Icon(Icons.search, color: AppTheme.primaryAccent),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? IconButton(
+                              icon: const Icon(Icons.clear, color: Colors.grey),
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() {
+                                  _searchQuery = '';
+                                });
+                              },
+                            )
+                          : null,
+                      filled: true,
+                      fillColor: AppTheme.cardBg,
+                      contentPadding: const EdgeInsets.symmetric(vertical: 0, horizontal: 16),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(30),
+                        borderSide: BorderSide.none,
+                      ),
                     ),
                   ),
                 ),
-              ),
 
-              // Active Download Indicator Banner
-              if (downloadProv.downloadingIds.isNotEmpty)
-                Container(
-                  margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.primaryAccent.withValues(alpha: 0.15),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
+                // Active Download Indicator Banner
+                if (downloadProv.downloadingIds.isNotEmpty)
+                  Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.primaryAccent.withValues(alpha: 0.15),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: AppTheme.primaryAccent.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: AppTheme.primaryAccent,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            'Downloading ${downloadProv.downloadingIds.length} audio file(s)...',
+                            style: const TextStyle(color: Colors.white, fontSize: 13),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
+
+                // Track Count Header
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
                   child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2.5,
-                          color: AppTheme.primaryAccent,
+                      Text(
+                        '${filtered.length} Offline Tracks',
+                        style: const TextStyle(
+                          color: Colors.grey,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
                         ),
                       ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'Downloading ${downloadProv.downloadingIds.length} audio file(s)...',
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
-                          overflow: TextOverflow.ellipsis,
+                      if (filtered.isNotEmpty && !_isMultiSelectMode)
+                        TextButton.icon(
+                          onPressed: () {
+                            widget.audioHandler.playTrack(filtered[0], queueList: filtered, index: 0);
+                          },
+                          icon: const Icon(Icons.play_circle_fill, color: AppTheme.primaryAccent),
+                          label: const Text('Play All', style: TextStyle(color: AppTheme.primaryAccent)),
                         ),
-                      ),
                     ],
                   ),
                 ),
 
-              // Track Count Header
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 8.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Text(
-                      '${filtered.length} Offline Tracks',
-                      style: const TextStyle(
-                        color: Colors.grey,
-                        fontSize: 14,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                    if (filtered.isNotEmpty && !_isMultiSelectMode)
-                      TextButton.icon(
-                        onPressed: () {
-                          widget.audioHandler.playTrack(filtered[0], queueList: filtered, index: 0);
-                        },
-                        icon: const Icon(Icons.play_circle_fill, color: AppTheme.primaryAccent),
-                        label: const Text('Play All', style: TextStyle(color: AppTheme.primaryAccent)),
-                      ),
-                  ],
-                ),
-              ),
-
-              // List of downloaded tracks
-              Expanded(
-                child: downloadProv.isLoading
-                    ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
-                    : filtered.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(Icons.download_done_rounded, size: 64, color: Colors.grey.withValues(alpha: 0.4)),
-                                const SizedBox(height: 16),
-                                Text(
-                                  _searchQuery.isNotEmpty ? 'No offline tracks match your search' : 'No offline audio files downloaded yet',
-                                  style: const TextStyle(color: Colors.grey, fontSize: 15),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: filtered.length,
-                            padding: const EdgeInsets.only(bottom: 120),
+                // List of downloaded tracks
+                Expanded(
+                  child: downloadProv.isLoading
+                      ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryAccent))
+                      : filtered.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(Icons.download_done_rounded, size: 64, color: Colors.grey.withValues(alpha: 0.4)),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    _searchQuery.isNotEmpty ? 'No offline tracks match your search' : 'No offline audio files downloaded yet',
+                                    style: const TextStyle(color: Colors.grey, fontSize: 15),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              padding: EdgeInsets.only(bottom: _isMultiSelectMode ? 160 : 120),
                             itemBuilder: (context, index) {
                               final audio = filtered[index];
                               return AudioTileWidget(
@@ -329,8 +340,9 @@ class _DownloadsScreenState extends State<DownloadsScreen> {
             ),
         ],
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _confirmDeleteDownloaded(BuildContext context, AudioModel audio) {
     showDialog(
