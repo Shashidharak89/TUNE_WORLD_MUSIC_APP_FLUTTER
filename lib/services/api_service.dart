@@ -373,15 +373,54 @@ class ApiService {
     required String audioId,
     String? name,
     String? visibility,
+    PlatformFile? thumbnailFile,
     String? thumbnailImageUrl,
   }) async {
+    String? finalThumbnailUrl = thumbnailImageUrl;
+
+    if (thumbnailFile != null) {
+      try {
+        final tSigUri = Uri.parse('$baseUrl/audio/cloudinary-signature').replace(
+          queryParameters: {'folder': 'tune_world/thumbnails'},
+        );
+        final tSigResponse = await http.get(tSigUri, headers: _headers(token));
+        final tSigData = _parseResponse(tSigResponse);
+
+        if (tSigResponse.statusCode == 200 && tSigData['success'] == true) {
+          final tTimestamp = tSigData['timestamp'].toString();
+          final tSignature = tSigData['signature'].toString();
+          final tApiKey = tSigData['apiKey'].toString();
+          final tCloudName = tSigData['cloudName'].toString();
+
+          final tUri = Uri.parse('https://api.cloudinary.com/v1_1/$tCloudName/image/upload');
+          final tRequest = http.MultipartRequest('POST', tUri);
+          tRequest.fields['api_key'] = tApiKey;
+          tRequest.fields['timestamp'] = tTimestamp;
+          tRequest.fields['signature'] = tSignature;
+          tRequest.fields['folder'] = 'tune_world/thumbnails';
+
+
+          tRequest.files.add(await _buildMultipartFile('file', thumbnailFile));
+
+          final tStreamed = await tRequest.send().timeout(const Duration(minutes: 2));
+          final tResponse = await http.Response.fromStream(tStreamed);
+          final tData = jsonDecode(tResponse.body);
+          if (tResponse.statusCode == 200 && tData['secure_url'] != null) {
+            finalThumbnailUrl = tData['secure_url'].toString();
+          }
+        }
+      } catch (e) {
+        print('Thumbnail upload warning on update: $e');
+      }
+    }
+
     final response = await http.put(
       Uri.parse('$baseUrl/audio/$audioId'),
       headers: _headers(token),
       body: jsonEncode({
         if (name != null) 'name': name,
         if (visibility != null) 'visibility': visibility,
-        if (thumbnailImageUrl != null) 'thumbnailImageUrl': thumbnailImageUrl,
+        if (finalThumbnailUrl != null) 'thumbnailImageUrl': finalThumbnailUrl,
       }),
     );
 
@@ -392,6 +431,7 @@ class ApiService {
       throw Exception(data['message'] ?? 'Failed to update audio');
     }
   }
+
 
   // Delete Audio
   static Future<void> deleteAudio({
